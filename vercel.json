@@ -1,0 +1,17 @@
+{
+  "buildCommand": "prisma generate && next build",
+  "framework": "nextjs",
+  "functions": {
+    "app/api/analyze/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/pdf/[id]/route.ts": {
+      "maxDuration": 30
+    }
+  },
+  "env": [
+    "DATABASE_URL",
+    "ANTHROPIC_API_KEY",
+    "NEXT_PUBLIC_APP_URL"
+  ]
+}

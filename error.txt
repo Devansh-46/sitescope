@@ -1,0 +1,4 @@
+⚠ Invalid `__TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$prisma$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["prisma"].report.create()` invocation in D:\Codes - Projects\VibeCoded_Projects\sitescope\.next\dev\server\chunks\[root-of-the-server]__f9e79fb7._.js:581:159 578 const { url } = parsed.data; 579 const domain = extractDomain(url); 580 // 2. Create a pending report in the database → 581 const report = await __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$prisma$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["prisma"].report.create( Can't reach database server at `localhost:5432` Please make sure your database server is running at `localhost:5432`.
+
+
+postgresql://postgres:[Devansh221604!]@db.pxhisebtaxwwlshzvhuw.supabase.co:5432/postgres
