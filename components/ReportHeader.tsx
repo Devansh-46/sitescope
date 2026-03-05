@@ -36,7 +36,7 @@ export default function ReportHeader({
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = objectUrl;
-      link.download = `sitescope-${domain}-report.pdf`;
+      link.download = `sitescope-by-plain-pixel-${domain}-report.pdf`;
       link.click();
       URL.revokeObjectURL(objectUrl);
     } catch (err) {
@@ -66,7 +66,7 @@ export default function ReportHeader({
           <div>
             {/* Breadcrumb */}
             <div className="flex items-center gap-2 text-xs font-mono text-text-muted mb-2">
-              <a href="/" className="hover:text-signal transition-colors">SiteScope</a>
+              <a href="/" className="hover:text-signal transition-colors">SiteScope by Plain & Pixel</a>
               <span>›</span>
               <span>Audit Report</span>
             </div>

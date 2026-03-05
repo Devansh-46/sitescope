@@ -78,6 +78,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
           <a href="/" className="flex items-center gap-2 font-display font-bold text-lg">
             <span className="text-text-primary">Site</span>
             <span className="text-signal">Scope</span>
+            <span className="text-[10px] text-text-muted ml-1 font-normal tracking-normal self-end mb-0.5">by Plain & Pixel</span>
           </a>
           <span className="text-xs font-mono text-text-muted border border-border px-3 py-1 rounded-full">
             AUDIT COMPLETE
@@ -119,9 +120,17 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
 
         <ContactCTA reportId={report.id} domain={report.domain} />
 
-        <footer className="text-center py-6 text-text-muted text-xs font-mono border-t border-border">
-          SiteScope — AI-powered website audit ·{' '}
-          <a href="/" className="hover:text-signal transition-colors">Run another audit →</a>
+        <footer className="py-8 text-center text-text-muted text-xs font-mono border-t border-border flex flex-col gap-2">
+          <p>SiteScope by Plain & Pixel — AI-powered website audit</p>
+          <p>
+            Developed by <a href="https://plainnpixel.tech" target="_blank" rel="noopener noreferrer" className="hover:text-signal transition-colors underline underline-offset-2">Plain & Pixel</a>
+          </p>
+          <p>
+            Contact: <a href="mailto:plain.n.pixel@gmail.com" className="hover:text-signal transition-colors">plain.n.pixel@gmail.com</a>
+          </p>
+          <div className="mt-2">
+            <a href="/" className="hover:text-signal transition-colors">Run another audit →</a>
+          </div>
         </footer>
       </div>
     </div>

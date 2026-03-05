@@ -28,12 +28,12 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: 'SiteScope — AI Website Audit',
+  title: 'SiteScope by Plain & Pixel — AI Website Audit',
   description:
     'Instant AI-powered analysis of your website\'s UX, SEO, performance, and conversion opportunities.',
   keywords: 'website audit, SEO analysis, performance, UX analysis, conversion optimization',
   openGraph: {
-    title: 'SiteScope — AI Website Audit',
+    title: 'SiteScope by Plain & Pixel — AI Website Audit',
     description: 'Instant AI-powered website analysis',
     type: 'website',
   },

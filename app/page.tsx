@@ -94,12 +94,13 @@ export default function HomePage() {
           </div>
           <span className="font-display font-bold text-xl text-text-primary tracking-tight">
             Site<span className="text-signal">Scope</span>
+            <span className="text-xs text-text-muted ml-2 font-normal tracking-normal">by Plain & Pixel</span>
           </span>
         </div>
 
         <div className="flex items-center gap-6 text-sm text-text-secondary font-body">
           <span className="hidden md:inline font-mono text-xs text-text-muted border border-border px-3 py-1 rounded-full">
-            v1.0 BETA
+            v1.0
           </span>
         </div>
       </nav>
@@ -244,6 +245,17 @@ export default function HomePage() {
           ↑ Example report output — run your own audit above
         </p>
       </div>
-    </main>
+
+      {/* ── Footer ────────────────────────────────────────── */}
+      <footer className="relative z-10 border-t border-border mt-12 py-8 text-center text-text-muted text-xs font-mono flex flex-col gap-2">
+        <p>SiteScope by Plain & Pixel — AI-powered website audit</p>
+        <p>
+          Developed by <a href="https://plainnpixel.tech" target="_blank" rel="noopener noreferrer" className="hover:text-signal transition-colors underline underline-offset-2">Plain & Pixel</a>
+        </p>
+        <p>
+          Contact: <a href="mailto:plain.n.pixel@gmail.com" className="hover:text-signal transition-colors">plain.n.pixel@gmail.com</a>
+        </p>
+      </footer>
+    </main >
   );
 }

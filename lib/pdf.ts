@@ -61,6 +61,8 @@ export async function generatePDFReport(
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(0, 212, 255);
   doc.text('SiteScope', margin, 25);
+  doc.setFontSize(14);
+  doc.text('by Plain & Pixel', margin + 48, 25);
 
   doc.setFontSize(12);
   doc.setFont('helvetica', 'normal');
@@ -69,7 +71,8 @@ export async function generatePDFReport(
   doc.text(`Generated: ${new Date(report.generatedAt).toLocaleDateString('en-US', {
     year: 'numeric', month: 'long', day: 'numeric'
   })}`, margin, 43);
-  doc.text(`URL: ${url}`, margin, 51);
+  doc.text(`URL: ${url}`, margin, 49);
+  doc.text(`Developed by: Plain & Pixel (https://plainnpixel.tech)`, margin, 55);
 
   y = 75;
 
@@ -209,7 +212,7 @@ export async function generatePDFReport(
     doc.setFontSize(8);
     doc.setTextColor(150, 150, 150);
     doc.text(
-      `SiteScope — ${domain} — Page ${i} of ${totalPages}`,
+      `SiteScope by Plain & Pixel — ${domain} — Page ${i} of ${totalPages}`,
       margin,
       doc.internal.pageSize.getHeight() - 10
     );
