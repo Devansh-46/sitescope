@@ -47,7 +47,12 @@ export default function HomePage() {
         throw new Error(data.error ?? 'Analysis failed');
       }
 
-      // Redirect to the report page
+      if (!data.reportId) {
+        throw new Error('No report ID returned from server');
+      }
+
+      // Redirect immediately — report page shows ProcessingScreen
+      // while the background pipeline runs (polls every 5s)
       router.push(`/report/${data.reportId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');

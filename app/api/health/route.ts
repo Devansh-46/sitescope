@@ -8,9 +8,9 @@ export async function GET() {
   const checks: Record<string, string> = {};
 
   // Check env vars
-  checks.SUPABASE_URL        = process.env.SUPABASE_URL        ? '✅ set' : '❌ MISSING';
+  checks.SUPABASE_URL = process.env.SUPABASE_URL ? '✅ set' : '❌ MISSING';
   checks.SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ? '✅ set' : '❌ MISSING';
-  checks.ANTHROPIC_API_KEY   = process.env.ANTHROPIC_API_KEY   ? '✅ set' : '❌ MISSING';
+  checks.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ? '✅ set' : '❌ MISSING';
 
   // Test DB connection
   try {

@@ -3,7 +3,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { supabase } from '@/lib/supabase';
 
 const ContactSchema = z.object({
   name: z.string().min(1).max(100),
@@ -27,6 +26,7 @@ export async function POST(request: NextRequest) {
 
     const { name, email, website, message, reportId } = parsed.data;
 
+    const { supabase } = await import('@/lib/supabase');
     const { error } = await supabase.from('contact_submissions').insert({
       name,
       email,

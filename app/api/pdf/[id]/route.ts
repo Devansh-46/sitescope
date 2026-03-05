@@ -3,7 +3,6 @@
 // Generates and streams a PDF report download
 
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
 import { generatePDFReport } from '@/lib/pdf';
 import type { AuditReport } from '@/lib/ai';
 

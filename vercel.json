@@ -1,5 +1,5 @@
 {
-  "buildCommand": "prisma generate && next build",
+  "buildCommand": "next build",
   "framework": "nextjs",
   "functions": {
     "app/api/analyze/route.ts": {
@@ -10,7 +10,8 @@
     }
   },
   "env": [
-    "DATABASE_URL",
+    "SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
     "ANTHROPIC_API_KEY",
     "NEXT_PUBLIC_APP_URL"
   ]
