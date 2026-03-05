@@ -3,33 +3,33 @@
 // Returns the full report data for a given report ID
 
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params;
+    const { id } = await params;
 
     if (!id || typeof id !== 'string') {
       return NextResponse.json({ error: 'Invalid report ID' }, { status: 400 });
     }
 
-    const report = await prisma.report.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        url: true,
-        domain: true,
-        overallScore: true,
-        status: true,
-        errorMsg: true,
-        auditResult: true,
-        lighthouseData: true,
-        createdAt: true,
-      },
-    });
+    const { supabase } = await import('@/lib/supabase');
+
+    const { data: report, error } = await supabase
+      .from('reports')
+      .select('id, url, domain, overall_score, status, error_msg, audit_result, lighthouse_data, created_at')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      console.error('[/api/report/[id]] Supabase error:', error.code, error.message);
+      if (error.code === 'PGRST116') {
+        return NextResponse.json({ error: 'Report not found' }, { status: 404 });
+      }
+      return NextResponse.json({ error: 'Failed to fetch report' }, { status: 500 });
+    }
 
     if (!report) {
       return NextResponse.json({ error: 'Report not found' }, { status: 404 });
