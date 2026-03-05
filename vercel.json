@@ -8,11 +8,5 @@
     "app/api/pdf/[id]/route.ts": {
       "maxDuration": 30
     }
-  },
-  "env": [
-    "SUPABASE_URL",
-    "SUPABASE_SERVICE_ROLE_KEY",
-    "ANTHROPIC_API_KEY",
-    "NEXT_PUBLIC_APP_URL"
-  ]
+  }
 }
