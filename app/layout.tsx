@@ -1,6 +1,7 @@
 // app/layout.tsx
 import type { Metadata } from 'next';
 import { Syne, Space_Mono, DM_Sans } from 'next/font/google';
+import { Analytics } from '@vercel/analytics/next';
 import './globals.css';
 
 // Display font — geometric, distinctive
@@ -50,6 +51,7 @@ export default function RootLayout({
         className={`${syne.variable} ${spaceMono.variable} ${dmSans.variable} font-body bg-void text-text-primary antialiased`}
       >
         {children}
+        <Analytics />
       </body>
     </html>
   );
