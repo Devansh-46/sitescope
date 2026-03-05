@@ -38,6 +38,10 @@ export const metadata: Metadata = {
     title: 'SiteScope by Plain & Pixel — AI Website Audit',
     description: 'Instant AI-powered website analysis',
     type: 'website',
+
+  },
+  icons: {
+    icon: '/favicon.png',
   },
 };
 
