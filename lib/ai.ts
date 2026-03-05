@@ -1,8 +1,8 @@
 // lib/ai.ts
-// Sends scraped data + Lighthouse scores to Claude for AI-powered audit generation
+// Sends scraped data + Lighthouse scores to Gemini for AI-powered audit generation
 // Returns a strongly-typed AuditReport JSON structure
 
-import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ScrapedPageData } from './scraper';
 import { LighthouseScores } from './lighthouse';
 
@@ -11,10 +11,10 @@ import { LighthouseScores } from './lighthouse';
 // ============================================================
 
 export interface AuditSection {
-  score: number;              // 0–100
-  grade: string;              // A, B, C, D, F
-  summary: string;            // 1–2 sentence overview
-  findings: AuditFinding[];   // Individual observations
+  score: number;
+  grade: string;
+  summary: string;
+  findings: AuditFinding[];
 }
 
 export interface AuditFinding {
@@ -33,19 +33,15 @@ export interface AuditReport {
     Performance: AuditSection;
     Conversion: AuditSection;
   };
-  topFixes: string[];          // Top 5 prioritized action items
-  executiveSummary: string;    // 3–4 sentence exec summary
-  generatedAt: string;         // ISO timestamp
+  topFixes: string[];
+  executiveSummary: string;
+  generatedAt: string;
 }
 
 // ============================================================
 // Prompt Template
 // ============================================================
 
-/**
- * Builds the audit prompt from scraped data and Lighthouse scores.
- * Designed to produce a JSON-only response with no prose outside JSON.
- */
 function buildAuditPrompt(
   scraped: ScrapedPageData,
   lighthouse: LighthouseScores
@@ -105,21 +101,21 @@ ${lighthouse.diagnostics.join('\n') || 'None'}
 
 ---
 
-Generate a detailed audit report as a JSON object. Score each section 0–100 based on the data above.
+Generate a detailed audit report as a JSON object. Score each section 0-100 based on the data above.
 
 SCORING GUIDE:
-- 90–100: Excellent (Grade A)
-- 75–89: Good (Grade B)  
-- 60–74: Average (Grade C)
-- 45–59: Poor (Grade D)
-- 0–44: Critical (Grade F)
+- 90-100: Excellent (Grade A)
+- 75-89: Good (Grade B)
+- 60-74: Average (Grade C)
+- 45-59: Poor (Grade D)
+- 0-44: Critical (Grade F)
 
 Return ONLY valid JSON matching this exact structure, with no prose before or after:
 
 {
   "overallScore": <weighted average of all 4 section scores>,
   "grade": "<A/B/C/D/F>",
-  "executiveSummary": "<3-4 sentence summary of the site's overall digital health>",
+  "executiveSummary": "<3-4 sentence summary of the site overall digital health>",
   "sections": {
     "UX": {
       "score": <0-100>,
@@ -134,90 +130,63 @@ Return ONLY valid JSON matching this exact structure, with no prose before or af
         }
       ]
     },
-    "SEO": {
-      "score": <0-100>,
-      "grade": "<A/B/C/D/F>",
-      "summary": "<1-2 sentence SEO overview>",
-      "findings": [...]
-    },
-    "Performance": {
-      "score": <0-100>,
-      "grade": "<A/B/C/D/F>",
-      "summary": "<1-2 sentence performance overview>",
-      "findings": [...]
-    },
-    "Conversion": {
-      "score": <0-100>,
-      "grade": "<A/B/C/D/F>",
-      "summary": "<1-2 sentence conversion overview>",
-      "findings": [...]
-    }
+    "SEO": { "score": <0-100>, "grade": "<A/B/C/D/F>", "summary": "<overview>", "findings": [...] },
+    "Performance": { "score": <0-100>, "grade": "<A/B/C/D/F>", "summary": "<overview>", "findings": [...] },
+    "Conversion": { "score": <0-100>, "grade": "<A/B/C/D/F>", "summary": "<overview>", "findings": [...] }
   },
-  "topFixes": [
-    "<Most impactful fix #1>",
-    "<Fix #2>",
-    "<Fix #3>",
-    "<Fix #4>",
-    "<Fix #5>"
-  ],
+  "topFixes": ["<Fix #1>", "<Fix #2>", "<Fix #3>", "<Fix #4>", "<Fix #5>"],
   "generatedAt": "${new Date().toISOString()}"
 }
 
-Include 4–6 findings per section. Make findings specific and actionable — reference actual data from the input where possible. Prioritize findings by business impact.`;
+Include 4-6 findings per section. Make findings specific and actionable. Prioritize by business impact.`;
 }
 
 // ============================================================
 // Main AI Analysis Function
 // ============================================================
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
-
-/**
- * Sends scraped page data + Lighthouse scores to Claude and returns
- * a fully structured AuditReport object.
- */
 export async function generateAuditReport(
   scraped: ScrapedPageData,
   lighthouse: LighthouseScores
 ): Promise<AuditReport> {
-  const prompt = buildAuditPrompt(scraped, lighthouse);
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY is not set');
 
-  const message = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 4096,
-    messages: [
-      {
-        role: 'user',
-        content: prompt,
-      },
-    ],
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash-lite',
+    generationConfig: {
+      responseMimeType: 'application/json',
+      maxOutputTokens: 8192,
+    },
   });
 
-  // Extract text content from response
-  const responseText = message.content
-    .filter((block) => block.type === 'text')
-    .map((block) => (block as { type: 'text'; text: string }).text)
-    .join('');
+  const prompt = buildAuditPrompt(scraped, lighthouse);
+  const result = await model.generateContent(prompt);
+  const responseText = result.response.text();
 
-  // Strip any accidental markdown code fences
   const cleanJson = responseText
     .replace(/```json\n?/g, '')
     .replace(/```\n?/g, '')
     .trim();
 
-  // Parse and validate the JSON response
+  // Attempt to recover truncated JSON by closing open structures
+  let jsonToParse = cleanJson;
+  if (!cleanJson.endsWith('}')) {
+    // Find the last complete top-level field and close the object
+    const lastBrace = cleanJson.lastIndexOf('}');
+    jsonToParse = lastBrace > 0 ? cleanJson.slice(0, lastBrace + 1) : cleanJson;
+  }
+
   let report: AuditReport;
   try {
-    report = JSON.parse(cleanJson) as AuditReport;
+    report = JSON.parse(jsonToParse) as AuditReport;
   } catch {
     throw new Error(
       `AI returned invalid JSON. Raw response: ${responseText.slice(0, 500)}`
     );
   }
 
-  // Basic validation
   if (!report.sections || !report.overallScore) {
     throw new Error('AI report is missing required fields');
   }

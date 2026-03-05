@@ -50,9 +50,20 @@ export async function runLighthouse(url: string): Promise<LighthouseScores> {
       port: chrome.port,
       formFactor: 'desktop' as const,
       throttlingMethod: 'simulate' as const,
+      screenEmulation: {
+        mobile: false,
+        width: 1350,
+        height: 940,
+        deviceScaleFactor: 1,
+        disabled: false,
+      },
     };
 
-    const runnerResult = await lighthouse(url, options);
+    const lighthouseTimeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Lighthouse timed out after 60s')), 60_000)
+    );
+
+    const runnerResult = await Promise.race([lighthouse(url, options), lighthouseTimeout]);
     await chrome.kill();
 
     if (!runnerResult?.lhr) throw new Error('Lighthouse returned no results');

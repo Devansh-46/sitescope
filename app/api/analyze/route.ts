@@ -25,13 +25,26 @@ async function runAnalysisPipeline(reportId: string, url: string) {
   const { runLighthouse } = await import('@/lib/lighthouse');
   const { generateAuditReport } = await import('@/lib/ai');
 
+  // Hard timeout — kill the pipeline after 3 minutes
+  const pipelineTimeout = setTimeout(async () => {
+    console.error('[pipeline] Timed out after 3 minutes');
+    try {
+      await supabase.from('reports').update({
+        status: 'FAILED',
+        error_msg: 'Analysis timed out after 3 minutes. Please try again.',
+      }).eq('id', reportId);
+    } catch { /* ignore */ }
+  }, 180_000);
+
   try {
     // 1. Scrape
+    console.log('[pipeline] Starting scrape for', url);
     await supabase.from('reports').update({ status: 'SCRAPING' }).eq('id', reportId);
 
     let scrapedData;
     try {
       scrapedData = await scrapePage(url);
+      console.log('[pipeline] Scrape complete');
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Scraping failed';
       await supabase.from('reports').update({ status: 'FAILED', error_msg: msg }).eq('id', reportId);
@@ -41,15 +54,19 @@ async function runAnalysisPipeline(reportId: string, url: string) {
     await supabase.from('reports').update({ scraped_data: scrapedData }).eq('id', reportId);
 
     // 2. Lighthouse (never throws — has fallback)
+    console.log('[pipeline] Starting Lighthouse...');
     const lighthouseData = await runLighthouse(url);
+    console.log('[pipeline] Lighthouse complete. Performance:', lighthouseData.performance);
     await supabase.from('reports').update({ lighthouse_data: lighthouseData }).eq('id', reportId);
 
     // 3. AI audit
+    console.log('[pipeline] Starting Gemini AI analysis...');
     await supabase.from('reports').update({ status: 'ANALYZING' }).eq('id', reportId);
 
     let auditResult;
     try {
       auditResult = await generateAuditReport(scrapedData, lighthouseData);
+      console.log('[pipeline] AI analysis complete. Score:', auditResult.overallScore);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'AI generation failed';
       await supabase.from('reports').update({ status: 'FAILED', error_msg: msg }).eq('id', reportId);
@@ -57,6 +74,7 @@ async function runAnalysisPipeline(reportId: string, url: string) {
     }
 
     // 4. Mark complete
+    clearTimeout(pipelineTimeout);
     await supabase.from('reports').update({
       audit_result: auditResult,
       overall_score: auditResult.overallScore,
@@ -64,6 +82,7 @@ async function runAnalysisPipeline(reportId: string, url: string) {
     }).eq('id', reportId);
 
   } catch (error) {
+    clearTimeout(pipelineTimeout);
     const message = error instanceof Error ? error.message : 'Unexpected error';
     console.error('[pipeline] Unhandled error:', error);
     try {
