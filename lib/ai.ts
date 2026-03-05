@@ -145,6 +145,14 @@ Include 4-6 findings per section. Make findings specific and actionable. Priorit
 // Main AI Analysis Function
 // ============================================================
 
+// Models tried in order — if one is rate-limited or unavailable, next is used
+const GEMINI_MODELS = [
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-3.0-flash',
+];
+
 export async function generateAuditReport(
   scraped: ScrapedPageData,
   lighthouse: LighthouseScores
@@ -153,17 +161,34 @@ export async function generateAuditReport(
   if (!apiKey) throw new Error('GEMINI_API_KEY is not set');
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash-lite',
-    generationConfig: {
-      responseMimeType: 'application/json',
-      maxOutputTokens: 8192,
-    },
-  });
-
   const prompt = buildAuditPrompt(scraped, lighthouse);
-  const result = await model.generateContent(prompt);
-  const responseText = result.response.text();
+
+  let responseText: string | null = null;
+  let lastError = '';
+
+  for (const modelName of GEMINI_MODELS) {
+    try {
+      console.log(`[AI] Trying model: ${modelName}`);
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        generationConfig: {
+          responseMimeType: 'application/json',
+          maxOutputTokens: 8192,
+        },
+      });
+      const result = await model.generateContent(prompt);
+      responseText = result.response.text();
+      console.log(`[AI] Success with: ${modelName}`);
+      break;
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e);
+      console.warn(`[AI] ${modelName} failed: ${lastError}`);
+    }
+  }
+
+  if (!responseText) {
+    throw new Error(`All Gemini models failed. Last error: ${lastError}`);
+  }
 
   const cleanJson = responseText
     .replace(/```json\n?/g, '')
