@@ -32,16 +32,28 @@ export default function ContactCTA({ reportId, domain }: ContactCTAProps) {
     setError('');
 
     try {
-      const res = await fetch('/api/contact', {
+      // 1. Log to local database
+      await fetch('/api/contact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...formData, reportId }),
       });
 
-      const data = await res.json();
+      // 2. Send email via FormSubmit.co (AJAX)
+      const formSubmitData = {
+        ...formData,
+        reportId,
+        _subject: `New Expert Report Request: ${formData.name}`,
+      };
+
+      const res = await fetch('https://formsubmit.co/ajax/plain.n.pixel@gmail.com', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formSubmitData),
+      });
 
       if (!res.ok) {
-        throw new Error(data.error ?? 'Submission failed');
+        throw new Error('Form submission failed');
       }
 
       setSuccess(true);
