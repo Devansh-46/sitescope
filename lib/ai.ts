@@ -7,7 +7,7 @@ import { ScrapedPageData } from './scraper';
 import { LighthouseScores } from './lighthouse';
 
 // ============================================================
-// Type Definitions — the shape of the AI-generated report
+// Type Definitions
 // ============================================================
 
 export interface AuditSection {
@@ -39,13 +39,41 @@ export interface AuditReport {
 }
 
 // ============================================================
-// Prompt Template
+// Prompt Builder
 // ============================================================
 
 function buildAuditPrompt(
   scraped: ScrapedPageData,
   lighthouse: LighthouseScores
 ): string {
+  const lighthouseSection = lighthouse.available
+    ? `
+LIGHTHOUSE SCORES (Google):
+Performance: ${lighthouse.performance}/100
+Accessibility: ${lighthouse.accessibility}/100
+Best Practices: ${lighthouse.bestPractices}/100
+SEO: ${lighthouse.seo}/100
+
+CORE WEB VITALS:
+First Contentful Paint: ${lighthouse.firstContentfulPaint}
+Largest Contentful Paint: ${lighthouse.largestContentfulPaint}
+Total Blocking Time: ${lighthouse.totalBlockingTime}
+Cumulative Layout Shift: ${lighthouse.cumulativeLayoutShift}
+Speed Index: ${lighthouse.speedIndex}
+Time to Interactive: ${lighthouse.timeToInteractive}
+
+TOP PERFORMANCE OPPORTUNITIES:
+${lighthouse.opportunities.map((o) => `- ${o.title}: ${o.savings}`).join('\n') || 'None identified'}
+
+DIAGNOSTICS:
+${lighthouse.diagnostics.join('\n') || 'None'}
+`
+    : `
+LIGHTHOUSE SCORES: Not available (serverless environment — Chrome cannot run).
+Do NOT penalize or mention Lighthouse unavailability in your findings.
+Base the Performance section entirely on page load time (${scraped.pageLoadTime}ms) and inferred best practices from the scraped HTML data (image count, missing alts, structured data, viewport meta, etc.).
+`;
+
   return `You are a senior digital strategist and technical SEO expert. Analyze the following website data and generate a comprehensive audit report.
 
 WEBSITE DATA:
@@ -78,26 +106,7 @@ CONVERSION SIGNALS:
 CTA Buttons Found: ${JSON.stringify(scraped.ctaButtons)}
 Forms on Page: ${scraped.formCount}
 Page Load Time: ${scraped.pageLoadTime}ms
-
-LIGHTHOUSE SCORES:
-Performance: ${lighthouse.performance}/100
-Accessibility: ${lighthouse.accessibility}/100
-Best Practices: ${lighthouse.bestPractices}/100
-SEO: ${lighthouse.seo}/100
-
-KEY METRICS:
-First Contentful Paint: ${lighthouse.firstContentfulPaint}
-Largest Contentful Paint: ${lighthouse.largestContentfulPaint}
-Total Blocking Time: ${lighthouse.totalBlockingTime}
-Cumulative Layout Shift: ${lighthouse.cumulativeLayoutShift}
-Speed Index: ${lighthouse.speedIndex}
-Time to Interactive: ${lighthouse.timeToInteractive}
-
-TOP PERFORMANCE OPPORTUNITIES:
-${lighthouse.opportunities.map((o) => `- ${o.title}: ${o.savings}`).join('\n') || 'None identified'}
-
-DIAGNOSTICS:
-${lighthouse.diagnostics.join('\n') || 'None'}
+${lighthouseSection}
 
 ---
 
@@ -115,7 +124,7 @@ Return ONLY valid JSON matching this exact structure, with no prose before or af
 {
   "overallScore": <weighted average of all 4 section scores>,
   "grade": "<A/B/C/D/F>",
-  "executiveSummary": "<3-4 sentence summary of the site overall digital health>",
+  "executiveSummary": "<3-4 sentence summary of the site's overall digital health>",
   "sections": {
     "UX": {
       "score": <0-100>,
@@ -145,7 +154,6 @@ Include 4-6 findings per section. Make findings specific and actionable. Priorit
 // Main AI Analysis Function
 // ============================================================
 
-// Models tried in order — if one is rate-limited or unavailable, next is used
 const GEMINI_MODELS = [
   'gemini-2.5-flash-lite',
   'gemini-2.5-flash',
@@ -195,10 +203,8 @@ export async function generateAuditReport(
     .replace(/```\n?/g, '')
     .trim();
 
-  // Attempt to recover truncated JSON by closing open structures
   let jsonToParse = cleanJson;
   if (!cleanJson.endsWith('}')) {
-    // Find the last complete top-level field and close the object
     const lastBrace = cleanJson.lastIndexOf('}');
     jsonToParse = lastBrace > 0 ? cleanJson.slice(0, lastBrace + 1) : cleanJson;
   }
