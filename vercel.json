@@ -1,0 +1,16 @@
+{
+  "buildCommand": "next build",
+  "installCommand": "npm install --prefer-online",
+  "framework": "nextjs",
+  "functions": {
+    "app/api/analyze/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/pdf/[id]/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/health/route.ts": {
+      "maxDuration": 15
+    }
+  }
+}
