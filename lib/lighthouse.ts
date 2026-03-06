@@ -29,57 +29,50 @@ export interface LighthouseOpportunity {
 export async function runLighthouse(url: string): Promise<LighthouseScores> {
   try {
     const apiKey = process.env.PAGESPEED_API_KEY ?? '';
-    const apiUrl = new URL('https://www.googleapis.com/pagespeedonline/v5/runPagespeed');
-    apiUrl.searchParams.set('url', url);
-    apiUrl.searchParams.set('strategy', 'desktop');
-    apiUrl.searchParams.set('category', 'performance');
-    apiUrl.searchParams.set('category', 'accessibility');
-    apiUrl.searchParams.set('category', 'best-practices');
-    apiUrl.searchParams.set('category', 'seo');
-    if (apiKey) apiUrl.searchParams.set('key', apiKey);
 
-    // Build correct URL with multiple category params (URLSearchParams dedupes, so build manually)
-    const base = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed';
-    const categories = ['performance', 'accessibility', 'best-practices', 'seo']
-      .map((c) => `category=${c}`)
-      .join('&');
+    // Build URL manually — URLSearchParams deduplicates keys, breaking multi-category requests
+    const encodedUrl = encodeURIComponent(url);
     const keyParam = apiKey ? `&key=${apiKey}` : '';
-    const fullUrl = `${base}?url=${encodeURIComponent(url)}&strategy=desktop&${categories}${keyParam}`;
+    const fullUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodedUrl}&strategy=desktop&category=performance&category=accessibility&category=best-practices&category=seo${keyParam}`;
 
     console.log('[Lighthouse] Fetching PageSpeed Insights for:', url);
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 55_000); // 55s timeout
+    const timeout = setTimeout(() => controller.abort(), 55_000);
 
     const response = await fetch(fullUrl, { signal: controller.signal });
     clearTimeout(timeout);
 
     if (!response.ok) {
       const errText = await response.text();
-      throw new Error(`PageSpeed API returned ${response.status}: ${errText.slice(0, 200)}`);
+      throw new Error(`PageSpeed API ${response.status}: ${errText.slice(0, 300)}`);
     }
 
     const data = await response.json();
     const lhr = data.lighthouseResult;
 
     if (!lhr) {
-      throw new Error('No lighthouseResult in PageSpeed response');
+      throw new Error(`No lighthouseResult in response. Keys: ${Object.keys(data).join(', ')}`);
     }
 
     const { categories: cats, audits } = lhr;
 
+    if (!cats || !audits) {
+      throw new Error('Missing categories or audits in lighthouseResult');
+    }
+
     const score = (key: string): number =>
-      Math.round(((cats[key]?.score as number) ?? 0) * 100);
+      Math.round(((cats[key]?.score ?? 0) as number) * 100);
 
     const metricValue = (id: string): string =>
-      (audits[id]?.displayValue as string) ?? 'N/A';
+      ((audits[id]?.displayValue) as string) ?? 'N/A';
 
     const opportunities: LighthouseOpportunity[] = Object.values(audits as Record<string, any>)
       .filter((a) => a.details?.type === 'opportunity' && a.score !== null && a.score < 0.9)
       .slice(0, 5)
       .map((a) => ({
-        id: a.id,
-        title: a.title,
+        id: a.id ?? '',
+        title: a.title ?? '',
         description: a.description ?? '',
         savings: a.details?.overallSavingsMs
           ? `Potential savings of ${(a.details.overallSavingsMs / 1000).toFixed(1)}s`
@@ -91,14 +84,19 @@ export async function runLighthouse(url: string): Promise<LighthouseScores> {
       .slice(0, 5)
       .map((a) => a.title as string);
 
-    console.log(`[Lighthouse] PageSpeed complete — Performance: ${score('performance')}`);
+    const perf = score('performance');
+    const acc = score('accessibility');
+    const bp = score('best-practices');
+    const seo = score('seo');
+
+    console.log(`[Lighthouse] Done — Perf:${perf} A11y:${acc} BP:${bp} SEO:${seo}`);
 
     return {
       available: true,
-      performance: score('performance'),
-      accessibility: score('accessibility'),
-      bestPractices: score('best-practices'),
-      seo: score('seo'),
+      performance: perf,
+      accessibility: acc,
+      bestPractices: bp,
+      seo,
       firstContentfulPaint: metricValue('first-contentful-paint'),
       largestContentfulPaint: metricValue('largest-contentful-paint'),
       totalBlockingTime: metricValue('total-blocking-time'),
@@ -109,7 +107,7 @@ export async function runLighthouse(url: string): Promise<LighthouseScores> {
       diagnostics,
     };
   } catch (error) {
-    console.error('[Lighthouse] PageSpeed Insights failed:', error);
+    console.error('[Lighthouse] PageSpeed failed:', error instanceof Error ? error.message : error);
     return {
       available: false,
       performance: -1,
