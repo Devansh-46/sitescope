@@ -104,12 +104,20 @@ async function fetchPageSpeed(
     clearTimeout(timeout);
 
     if (!response.ok) {
+      if (response.status === 429) {
+        throw new Error('Daily quota exceeded. Add a PAGESPEED_API_KEY env var in Vercel to get a higher limit.');
+      }
       const text = await response.text();
       throw new Error(`PageSpeed API ${response.status}: ${text.slice(0, 200)}`);
     }
 
     const data = await response.json();
-    if (data.error) throw new Error(`API error: ${JSON.stringify(data.error).slice(0, 200)}`);
+    if (data.error) {
+      if (data.error.code === 429 || data.error.status === 'RESOURCE_EXHAUSTED') {
+        throw new Error('Daily quota exceeded. Add a PAGESPEED_API_KEY env var in Vercel to get a higher limit.');
+      }
+      throw new Error(`API error: ${JSON.stringify(data.error).slice(0, 200)}`);
+    }
 
     const lhr = data.lighthouseResult;
     if (!lhr) throw new Error('No lighthouseResult in response');
