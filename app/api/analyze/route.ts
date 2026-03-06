@@ -1,8 +1,10 @@
 // app/api/analyze/route.ts
 // POST /api/analyze
 // Creates report instantly → returns reportId → background processing begins
+// Uses next/server after() so Vercel doesn't kill the process after the response is sent
 
 import { NextRequest, NextResponse } from 'next/server';
+import { after } from 'next/server';
 import { z } from 'zod';
 
 function jsonError(message: string, status = 500) {
@@ -18,23 +20,23 @@ function extractDomain(url: string): string {
   catch { return url; }
 }
 
-// ── Background pipeline (runs after response is sent) ────────
+// ── Background pipeline ───────────────────────────────────────
 async function runAnalysisPipeline(reportId: string, url: string) {
   const { supabase } = await import('@/lib/supabase');
   const { scrapePage } = await import('@/lib/scraper');
   const { runLighthouse } = await import('@/lib/lighthouse');
   const { generateAuditReport } = await import('@/lib/ai');
 
-  // Hard timeout — kill the pipeline after 3 minutes
+  // Hard timeout — kill the pipeline after 55 seconds (just under Vercel's 60s limit)
   const pipelineTimeout = setTimeout(async () => {
-    console.error('[pipeline] Timed out after 3 minutes');
+    console.error('[pipeline] Timed out after 55 seconds');
     try {
       await supabase.from('reports').update({
         status: 'FAILED',
-        error_msg: 'Analysis timed out after 3 minutes. Please try again.',
+        error_msg: 'Analysis timed out. The website may be slow or blocking automated access. Please try again.',
       }).eq('id', reportId);
     } catch { /* ignore */ }
-  }, 180_000);
+  }, 55_000);
 
   try {
     // 1. Scrape
@@ -47,7 +49,9 @@ async function runAnalysisPipeline(reportId: string, url: string) {
       console.log('[pipeline] Scrape complete');
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Scraping failed';
-      await supabase.from('reports').update({ status: 'FAILED', error_msg: msg }).eq('id', reportId);
+      console.error('[pipeline] Scrape failed:', msg);
+      await supabase.from('reports').update({ status: 'FAILED', error_msg: `Scraping failed: ${msg}` }).eq('id', reportId);
+      clearTimeout(pipelineTimeout);
       return;
     }
 
@@ -69,25 +73,32 @@ async function runAnalysisPipeline(reportId: string, url: string) {
       console.log('[pipeline] AI analysis complete. Score:', auditResult.overallScore);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'AI generation failed';
-      await supabase.from('reports').update({ status: 'FAILED', error_msg: msg }).eq('id', reportId);
+      console.error('[pipeline] AI failed:', msg);
+      await supabase.from('reports').update({ status: 'FAILED', error_msg: `AI analysis failed: ${msg}` }).eq('id', reportId);
+      clearTimeout(pipelineTimeout);
       return;
     }
 
     // 4. Mark complete
     clearTimeout(pipelineTimeout);
-    await supabase.from('reports').update({
+    const { error: updateError } = await supabase.from('reports').update({
       audit_result: auditResult,
       overall_score: auditResult.overallScore,
       status: 'COMPLETE',
     }).eq('id', reportId);
+
+    if (updateError) {
+      console.error('[pipeline] Failed to mark COMPLETE:', updateError);
+    } else {
+      console.log('[pipeline] Successfully marked COMPLETE for report', reportId);
+    }
 
   } catch (error) {
     clearTimeout(pipelineTimeout);
     const message = error instanceof Error ? error.message : 'Unexpected error';
     console.error('[pipeline] Unhandled error:', error);
     try {
-      const { supabase: sb } = await import('@/lib/supabase');
-      await sb.from('reports').update({ status: 'FAILED', error_msg: message }).eq('id', reportId);
+      await supabase.from('reports').update({ status: 'FAILED', error_msg: message }).eq('id', reportId);
     } catch { /* ignore */ }
   }
 }
@@ -124,13 +135,12 @@ export async function POST(request: NextRequest) {
       return jsonError(`Database error: ${createError?.message ?? 'Could not create report'}`);
     }
 
-    // Fire-and-forget — pipeline runs after response is returned
-    runAnalysisPipeline(report.id, url).catch(err =>
-      console.error('[analyze] Pipeline uncaught:', err)
-    );
+    console.log('[analyze] Created report', report.id, 'for', url);
 
-    // Return reportId instantly — client redirects to /report/[id]
-    // ProcessingScreen polls every 5s until status = COMPLETE
+    // after() keeps the Vercel serverless function alive until the pipeline finishes
+    // Without this, Vercel freezes the process as soon as the response is sent
+    after(runAnalysisPipeline(report.id, url));
+
     return NextResponse.json(
       { reportId: report.id, status: 'processing' },
       { status: 202 }
