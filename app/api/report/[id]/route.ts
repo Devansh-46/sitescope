@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
+
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ error: message }, { status });
 }
