@@ -33,10 +33,10 @@ export interface ScrapedPageData {
   pageLoadTime: number;
 }
 
-// ── Chromium binary URL for @sparticuz/chromium-min ──────────
-// Pin to a specific version that matches puppeteer-core@22
+// ── Chromium binary URL for @sparticuz/chromium-min v131 ─────
+// MUST match the installed package version (^131.0.0)
 const CHROMIUM_REMOTE_EXECUTABLE_PATH =
-  'https://github.com/Sparticuz/chromium/releases/download/v123.0.1/chromium-v123.0.1-pack.tar';
+  'https://github.com/Sparticuz/chromium/releases/download/v131.0.0/chromium-v131.0.0-pack.tar';
 
 // ── Cross-platform Chrome path detection (local dev only) ────
 function getLocalChromePath(): string {
@@ -95,8 +95,12 @@ export async function scrapePage(url: string): Promise<ScrapedPageData> {
       // This keeps the function bundle well under Vercel's 50MB limit
       const chromium = (await import('@sparticuz/chromium-min')).default;
       executablePath = await chromium.executablePath(CHROMIUM_REMOTE_EXECUTABLE_PATH);
-      launchArgs = chromium.args;
-      console.log('[Scraper] Serverless mode — using @sparticuz/chromium-min');
+      launchArgs = [
+        ...chromium.args,
+        '--disable-web-security',
+        '--disable-features=IsolateOrigins,site-per-process',
+      ];
+      console.log('[Scraper] Serverless mode — using @sparticuz/chromium-min v131');
     } else {
       executablePath = getLocalChromePath();
       launchArgs = [
@@ -118,7 +122,7 @@ export async function scrapePage(url: string): Promise<ScrapedPageData> {
     const page: Page = await browser.newPage();
 
     await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
     );
     await page.setViewport({ width: 1280, height: 800 });
 
