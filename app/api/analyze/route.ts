@@ -27,43 +27,75 @@ async function runAnalysisPipeline(reportId: string, url: string) {
   const { runLighthouse } = await import('@/lib/pagespeed');
   const { generateAuditReport } = await import('@/lib/ai');
 
-  // Hard timeout — kill the pipeline after 55 seconds (just under Vercel's 60s limit)
+  // Hard timeout — kill the pipeline after 55 seconds
   const pipelineTimeout = setTimeout(async () => {
     console.error('[pipeline] Timed out after 55 seconds');
     try {
       await supabase.from('reports').update({
         status: 'FAILED',
-        error_msg: 'Analysis timed out. The website may be slow or blocking automated access. Please try again.',
+        error_msg: 'Analysis timed out. Please try again.',
       }).eq('id', reportId);
     } catch { /* ignore */ }
   }, 55_000);
 
   try {
-    // 1. Scrape
-    console.log('[pipeline] Starting scrape for', url);
     await supabase.from('reports').update({ status: 'SCRAPING' }).eq('id', reportId);
 
-    let scrapedData;
-    try {
-      scrapedData = await scrapePage(url);
-      console.log('[pipeline] Scrape complete');
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Scraping failed';
+    // ── Step 1: Scrape + PageSpeed IN PARALLEL (saves ~20s) ──────
+    console.log('[pipeline] Starting scrape + PageSpeed in parallel for', url);
+
+    const scrapePromise = scrapePage(url);
+
+    // PageSpeed with its own 25s timeout so it never blocks the pipeline
+    const pagespeedPromise = Promise.race([
+      runLighthouse(url),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 25_000)),
+    ]);
+
+    const [scrapeResult, lighthouseResult] = await Promise.allSettled([
+      scrapePromise,
+      pagespeedPromise,
+    ]);
+
+    // Handle scrape failure
+    if (scrapeResult.status === 'rejected') {
+      const msg = scrapeResult.reason instanceof Error
+        ? scrapeResult.reason.message
+        : 'Scraping failed';
       console.error('[pipeline] Scrape failed:', msg);
-      await supabase.from('reports').update({ status: 'FAILED', error_msg: `Scraping failed: ${msg}` }).eq('id', reportId);
+      await supabase.from('reports').update({
+        status: 'FAILED',
+        error_msg: `Could not access the website: ${msg}`,
+      }).eq('id', reportId);
       clearTimeout(pipelineTimeout);
       return;
     }
 
-    await supabase.from('reports').update({ scraped_data: scrapedData }).eq('id', reportId);
+    const scrapedData = scrapeResult.value;
+    console.log('[pipeline] Scrape complete');
 
-    // 2. Lighthouse (never throws — has fallback)
-    console.log('[pipeline] Starting PageSpeed Insights...');
-    const lighthouseData = await runLighthouse(url);
+    // PageSpeed is optional — use fallback if it timed out or failed
+    const lighthouseData = (
+      lighthouseResult.status === 'fulfilled' && lighthouseResult.value !== null
+        ? lighthouseResult.value
+        : {
+            available: false,
+            performance: -1, accessibility: -1, bestPractices: -1, seo: -1,
+            firstContentfulPaint: 'N/A', largestContentfulPaint: 'N/A',
+            totalBlockingTime: 'N/A', cumulativeLayoutShift: 'N/A',
+            speedIndex: 'N/A', timeToInteractive: 'N/A',
+            opportunities: [], diagnostics: [],
+          }
+    );
     console.log('[pipeline] PageSpeed complete. Performance:', lighthouseData.performance);
-    await supabase.from('reports').update({ lighthouse_data: lighthouseData }).eq('id', reportId);
 
-    // 3. AI audit
+    // Save both to DB
+    await supabase.from('reports').update({
+      scraped_data: scrapedData,
+      lighthouse_data: lighthouseData,
+    }).eq('id', reportId);
+
+    // ── Step 2: AI analysis ───────────────────────────────────────
     console.log('[pipeline] Starting Gemini AI analysis...');
     await supabase.from('reports').update({ status: 'ANALYZING' }).eq('id', reportId);
 
@@ -74,12 +106,15 @@ async function runAnalysisPipeline(reportId: string, url: string) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'AI generation failed';
       console.error('[pipeline] AI failed:', msg);
-      await supabase.from('reports').update({ status: 'FAILED', error_msg: `AI analysis failed: ${msg}` }).eq('id', reportId);
+      await supabase.from('reports').update({
+        status: 'FAILED',
+        error_msg: `AI analysis failed: ${msg}`,
+      }).eq('id', reportId);
       clearTimeout(pipelineTimeout);
       return;
     }
 
-    // 4. Mark complete
+    // ── Step 3: Mark complete ─────────────────────────────────────
     clearTimeout(pipelineTimeout);
     const { error: updateError } = await supabase.from('reports').update({
       audit_result: auditResult,
@@ -98,7 +133,10 @@ async function runAnalysisPipeline(reportId: string, url: string) {
     const message = error instanceof Error ? error.message : 'Unexpected error';
     console.error('[pipeline] Unhandled error:', error);
     try {
-      await supabase.from('reports').update({ status: 'FAILED', error_msg: message }).eq('id', reportId);
+      await supabase.from('reports').update({
+        status: 'FAILED',
+        error_msg: message,
+      }).eq('id', reportId);
     } catch { /* ignore */ }
   }
 }
@@ -120,10 +158,8 @@ export async function POST(request: NextRequest) {
 
     const { url } = parsed.data;
     const domain = extractDomain(url);
-
     const { supabase } = await import('@/lib/supabase');
 
-    // Create pending report immediately
     const { data: report, error: createError } = await supabase
       .from('reports')
       .insert({ url, domain, status: 'PENDING' })
@@ -136,8 +172,6 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('[analyze] Created report', report.id, 'for', url);
-
-    // after() keeps the Vercel serverless function alive until the pipeline finishes
     after(runAnalysisPipeline(report.id, url));
 
     return NextResponse.json(
