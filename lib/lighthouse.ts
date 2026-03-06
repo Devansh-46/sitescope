@@ -29,19 +29,35 @@ export interface LighthouseOpportunity {
 export async function runLighthouse(url: string): Promise<LighthouseScores> {
   try {
     const apiKey = process.env.PAGESPEED_API_KEY ?? '';
-
-    // Build URL manually — URLSearchParams deduplicates keys, breaking multi-category requests
     const encodedUrl = encodeURIComponent(url);
     const keyParam = apiKey ? `&key=${apiKey}` : '';
-    const fullUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodedUrl}&strategy=desktop&category=performance&category=accessibility&category=best-practices&category=seo${keyParam}`;
 
-    console.log('[Lighthouse] Fetching PageSpeed Insights for:', url);
+    // Must build URL manually — URLSearchParams.set() deduplicates keys,
+    // which would drop all but the last `category` parameter
+    const fullUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed`
+      + `?url=${encodedUrl}`
+      + `&strategy=desktop`
+      + `&category=performance`
+      + `&category=accessibility`
+      + `&category=best-practices`
+      + `&category=seo`
+      + keyParam;
 
+    console.log('[Lighthouse] Starting PageSpeed Insights fetch for:', url);
+    const startTime = Date.now();
+
+    // 90s timeout — PageSpeed API can take up to 60s for slow sites
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 55_000);
+    const timeout = setTimeout(() => {
+      console.error('[Lighthouse] Aborting — exceeded 90s timeout');
+      controller.abort();
+    }, 90_000);
 
     const response = await fetch(fullUrl, { signal: controller.signal });
     clearTimeout(timeout);
+
+    const elapsed = Date.now() - startTime;
+    console.log(`[Lighthouse] API responded in ${elapsed}ms with status ${response.status}`);
 
     if (!response.ok) {
       const errText = await response.text();
@@ -49,17 +65,22 @@ export async function runLighthouse(url: string): Promise<LighthouseScores> {
     }
 
     const data = await response.json();
-    const lhr = data.lighthouseResult;
 
+    if (data.error) {
+      throw new Error(`PageSpeed API error: ${JSON.stringify(data.error).slice(0, 200)}`);
+    }
+
+    const lhr = data.lighthouseResult;
     if (!lhr) {
-      throw new Error(`No lighthouseResult in response. Keys: ${Object.keys(data).join(', ')}`);
+      const keys = Object.keys(data).join(', ');
+      throw new Error(`No lighthouseResult in response. Top-level keys: ${keys}`);
     }
 
     const { categories: cats, audits } = lhr;
+    if (!cats) throw new Error('lighthouseResult.categories is missing');
+    if (!audits) throw new Error('lighthouseResult.audits is missing');
 
-    if (!cats || !audits) {
-      throw new Error('Missing categories or audits in lighthouseResult');
-    }
+    console.log('[Lighthouse] Available categories:', Object.keys(cats).join(', '));
 
     const score = (key: string): number =>
       Math.round(((cats[key]?.score ?? 0) as number) * 100);
@@ -84,19 +105,12 @@ export async function runLighthouse(url: string): Promise<LighthouseScores> {
       .slice(0, 5)
       .map((a) => a.title as string);
 
-    const perf = score('performance');
-    const acc = score('accessibility');
-    const bp = score('best-practices');
-    const seo = score('seo');
-
-    console.log(`[Lighthouse] Done — Perf:${perf} A11y:${acc} BP:${bp} SEO:${seo}`);
-
-    return {
+    const result = {
       available: true,
-      performance: perf,
-      accessibility: acc,
-      bestPractices: bp,
-      seo,
+      performance: score('performance'),
+      accessibility: score('accessibility'),
+      bestPractices: score('best-practices'),
+      seo: score('seo'),
       firstContentfulPaint: metricValue('first-contentful-paint'),
       largestContentfulPaint: metricValue('largest-contentful-paint'),
       totalBlockingTime: metricValue('total-blocking-time'),
@@ -106,8 +120,13 @@ export async function runLighthouse(url: string): Promise<LighthouseScores> {
       opportunities,
       diagnostics,
     };
+
+    console.log(`[Lighthouse] ✓ Perf:${result.performance} A11y:${result.accessibility} BP:${result.bestPractices} SEO:${result.seo}`);
+    return result;
+
   } catch (error) {
-    console.error('[Lighthouse] PageSpeed failed:', error instanceof Error ? error.message : error);
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('[Lighthouse] ✗ Failed:', msg);
     return {
       available: false,
       performance: -1,
