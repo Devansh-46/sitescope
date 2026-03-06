@@ -34,9 +34,31 @@ export interface ScrapedPageData {
 }
 
 // ── Chromium binary URL for @sparticuz/chromium-min v131 ─────
-// MUST match the installed package version (^131.0.0)
 const CHROMIUM_REMOTE_EXECUTABLE_PATH =
   'https://github.com/Sparticuz/chromium/releases/download/v131.0.0/chromium-v131.0.0-pack.tar';
+
+// ── Args required to run Chromium in Vercel's Lambda environment ──
+// libnss3.so and other system libs are missing — these flags work around them
+const SERVERLESS_CHROMIUM_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-gpu',
+  '--disable-software-rasterizer',
+  '--disable-dev-tools',
+  '--no-first-run',
+  '--no-zygote',
+  '--single-process',           // ← critical for Lambda/serverless environments
+  '--disable-extensions',
+  '--disable-background-networking',
+  '--disable-default-apps',
+  '--disable-sync',
+  '--disable-translate',
+  '--hide-scrollbars',
+  '--metrics-recording-only',
+  '--mute-audio',
+  '--safebrowsing-disable-auto-update',
+];
 
 // ── Cross-platform Chrome path detection (local dev only) ────
 function getLocalChromePath(): string {
@@ -91,16 +113,13 @@ export async function scrapePage(url: string): Promise<ScrapedPageData> {
     let launchArgs: string[];
 
     if (isServerless) {
-      // Use chromium-min — downloads binary from GitHub at runtime
-      // This keeps the function bundle well under Vercel's 50MB limit
       const chromium = (await import('@sparticuz/chromium-min')).default;
       executablePath = await chromium.executablePath(CHROMIUM_REMOTE_EXECUTABLE_PATH);
-      launchArgs = [
-        ...chromium.args,
-        '--disable-web-security',
-        '--disable-features=IsolateOrigins,site-per-process',
-      ];
-      console.log('[Scraper] Serverless mode — using @sparticuz/chromium-min v131');
+      // Use our full hardened args list — NOT chromium.args alone
+      // chromium.args doesn't include --single-process which is needed for libnss3 missing env
+      launchArgs = SERVERLESS_CHROMIUM_ARGS;
+      console.log('[Scraper] Serverless mode — chromium-min v131, single-process mode');
+      console.log('[Scraper] executablePath:', executablePath);
     } else {
       executablePath = getLocalChromePath();
       launchArgs = [
@@ -117,6 +136,7 @@ export async function scrapePage(url: string): Promise<ScrapedPageData> {
       executablePath,
       headless: true,
       args: launchArgs,
+      ignoreHTTPSErrors: true,
     });
 
     const page: Page = await browser.newPage();
