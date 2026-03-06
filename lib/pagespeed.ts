@@ -99,7 +99,7 @@ async function fetchPageSpeed(
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 90_000);
+    const timeout = setTimeout(() => controller.abort(), 150_000);
     const response = await fetch(apiUrl, { signal: controller.signal });
     clearTimeout(timeout);
 
