@@ -1,9 +1,9 @@
 // lib/scraper.ts
-// Puppeteer-based page scraper — extracts all SEO and content signals
-// Uses @sparticuz/chromium-min on Vercel, local Chrome in dev
+// HTTP-based page scraper — extracts all SEO and content signals
+// Uses native fetch + cheerio for HTML parsing (no browser needed)
+// Works perfectly on Vercel serverless — no Chromium, no system library issues
 
-import puppeteer, { Browser, Page } from 'puppeteer-core';
-import * as fs from 'fs';
+import * as cheerio from 'cheerio';
 
 export interface ScrapedPageData {
   url: string;
@@ -33,200 +33,142 @@ export interface ScrapedPageData {
   pageLoadTime: number;
 }
 
-// ── Chromium binary URL for @sparticuz/chromium-min v131 ─────
-const CHROMIUM_REMOTE_EXECUTABLE_PATH =
-  'https://github.com/Sparticuz/chromium/releases/download/v131.0.0/chromium-v131.0.0-pack.tar';
-
-// ── Args required to run Chromium in Vercel's Lambda environment ──
-// libnss3.so and other system libs are missing — these flags work around them
-const SERVERLESS_CHROMIUM_ARGS = [
-  '--no-sandbox',
-  '--disable-setuid-sandbox',
-  '--disable-dev-shm-usage',
-  '--disable-gpu',
-  '--disable-software-rasterizer',
-  '--disable-dev-tools',
-  '--no-first-run',
-  '--no-zygote',
-  '--single-process',           // ← critical for Lambda/serverless environments
-  '--disable-extensions',
-  '--disable-background-networking',
-  '--disable-default-apps',
-  '--disable-sync',
-  '--disable-translate',
-  '--hide-scrollbars',
-  '--metrics-recording-only',
-  '--mute-audio',
-  '--safebrowsing-disable-auto-update',
-];
-
-// ── Cross-platform Chrome path detection (local dev only) ────
-function getLocalChromePath(): string {
-  const platform = process.platform;
-  const candidates: string[] = [];
-
-  if (platform === 'win32') {
-    candidates.push(
-      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-      `C:\\Users\\${process.env.USERNAME}\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe`,
-      'C:\\Program Files\\Chromium\\Application\\chrome.exe',
-      'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-      'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-    );
-  } else if (platform === 'darwin') {
-    candidates.push(
-      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-      '/Applications/Chromium.app/Contents/MacOS/Chromium',
-    );
-  } else {
-    candidates.push(
-      '/usr/bin/google-chrome',
-      '/usr/bin/google-chrome-stable',
-      '/usr/bin/chromium-browser',
-      '/usr/bin/chromium',
-      '/snap/bin/chromium',
-    );
-  }
-
-  for (const p of candidates) {
-    if (fs.existsSync(p)) {
-      console.log(`[Scraper] Using local Chrome at: ${p}`);
-      return p;
-    }
-  }
-
-  throw new Error(
-    `Chrome not found. Please install Google Chrome.\nSearched:\n${candidates.join('\n')}`
-  );
-}
-
-// ── Main scrape function ──────────────────────────────────────
 export async function scrapePage(url: string): Promise<ScrapedPageData> {
-  let browser: Browser | null = null;
+  const startTime = Date.now();
 
-  try {
-    const isServerless =
-      process.env.VERCEL === '1' || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+  // Normalise URL
+  const targetUrl = url.startsWith('http') ? url : `https://${url}`;
 
-    let executablePath: string;
-    let launchArgs: string[];
+  const response = await fetch(targetUrl, {
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      'Accept':
+        'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.5',
+      'Cache-Control': 'no-cache',
+    },
+    redirect: 'follow',
+  });
 
-    if (isServerless) {
-      const chromium = (await import('@sparticuz/chromium-min')).default;
-      executablePath = await chromium.executablePath(CHROMIUM_REMOTE_EXECUTABLE_PATH);
-      // Use our full hardened args list — NOT chromium.args alone
-      // chromium.args doesn't include --single-process which is needed for libnss3 missing env
-      launchArgs = SERVERLESS_CHROMIUM_ARGS;
-      console.log('[Scraper] Serverless mode — chromium-min v131, single-process mode');
-      console.log('[Scraper] executablePath:', executablePath);
-    } else {
-      executablePath = getLocalChromePath();
-      launchArgs = [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-first-run',
-        '--disable-extensions',
-      ];
-    }
+  const pageLoadTime = Date.now() - startTime;
+  const finalUrl = response.url;
+  const html = await response.text();
 
-    browser = await puppeteer.launch({
-      executablePath,
-      headless: true,
-      args: launchArgs,
-      ignoreHTTPSErrors: true,
-    });
+  const $ = cheerio.load(html);
 
-    const page: Page = await browser.newPage();
+  // ── Meta helpers ─────────────────────────────────────────
+  const getMeta = (name: string) =>
+    $(`meta[name="${name}"]`).attr('content')?.trim() ?? '';
+  const getProperty = (prop: string) =>
+    $(`meta[property="${prop}"]`).attr('content')?.trim() ?? '';
 
-    await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-    );
-    await page.setViewport({ width: 1280, height: 800 });
+  // ── Headings ─────────────────────────────────────────────
+  const h1Tags = $('h1')
+    .map((_, el) => $(el).text().trim())
+    .get()
+    .filter(Boolean);
+  const h2Tags = $('h2')
+    .map((_, el) => $(el).text().trim())
+    .get()
+    .filter(Boolean)
+    .slice(0, 10);
+  const h3Tags = $('h3')
+    .map((_, el) => $(el).text().trim())
+    .get()
+    .filter(Boolean)
+    .slice(0, 10);
 
-    // Block images/fonts/css to speed up scraping
-    await page.setRequestInterception(true);
-    page.on('request', (req) => {
-      const type = req.resourceType();
-      if (['image', 'media', 'font', 'stylesheet'].includes(type)) {
-        req.abort();
-      } else {
-        req.continue();
+  // ── Images ───────────────────────────────────────────────
+  const allImages = $('img').toArray();
+  const imagesMissingAlt = allImages.filter(
+    (img) => !$(img).attr('alt')?.trim()
+  ).length;
+
+  // ── Links ────────────────────────────────────────────────
+  const origin = new URL(finalUrl).origin;
+  const allLinks = $('a[href]').toArray();
+
+  const internalLinks = allLinks
+    .map((a) => {
+      const href = $(a).attr('href') ?? '';
+      try {
+        return new URL(href, finalUrl).href;
+      } catch {
+        return '';
       }
-    });
+    })
+    .filter((href) => href.startsWith(origin))
+    .slice(0, 50);
 
-    const startTime = Date.now();
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-    const pageLoadTime = Date.now() - startTime;
-    const finalUrl = page.url();
+  const externalLinks = allLinks
+    .map((a) => {
+      const href = $(a).attr('href') ?? '';
+      try {
+        return new URL(href, finalUrl).href;
+      } catch {
+        return '';
+      }
+    })
+    .filter((href) => href.startsWith('http') && !href.startsWith(origin))
+    .slice(0, 30);
 
-    const data = await page.evaluate(() => {
-      const getMeta = (name: string): string =>
-        (document.querySelector(`meta[name="${name}"]`) as HTMLMetaElement)?.content?.trim() ?? '';
-      const getProperty = (property: string): string =>
-        (document.querySelector(`meta[property="${property}"]`) as HTMLMetaElement)?.content?.trim() ?? '';
+  // ── Word count (body text) ────────────────────────────────
+  // Remove scripts/styles before counting
+  $('script, style, noscript').remove();
+  const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
+  const wordCount = bodyText.split(' ').filter((w) => w.length > 1).length;
 
-      const h1Tags = Array.from(document.querySelectorAll('h1')).map((el) => el.textContent?.trim() ?? '');
-      const h2Tags = Array.from(document.querySelectorAll('h2')).map((el) => el.textContent?.trim() ?? '');
-      const h3Tags = Array.from(document.querySelectorAll('h3')).map((el) => el.textContent?.trim() ?? '');
+  // ── Technical SEO ────────────────────────────────────────
+  const canonicalEl = $('link[rel="canonical"]');
+  const hasCanonical = canonicalEl.length > 0;
+  const canonicalUrl = canonicalEl.attr('href') ?? '';
 
-      const allImages = Array.from(document.querySelectorAll('img'));
-      const imagesMissingAlt = allImages.filter((img) => !img.alt || img.alt.trim() === '').length;
+  const robotsMeta = $('meta[name="robots"]');
+  const hasRobotsMeta = robotsMeta.length > 0;
+  const robotsContent = robotsMeta.attr('content') ?? '';
 
-      const allLinks = Array.from(document.querySelectorAll('a[href]'));
-      const origin = window.location.origin;
-      const internalLinks = allLinks
-        .map((a) => (a as HTMLAnchorElement).href)
-        .filter((href) => href.startsWith(origin))
-        .slice(0, 50);
-      const externalLinks = allLinks
-        .map((a) => (a as HTMLAnchorElement).href)
-        .filter((href) => href.startsWith('http') && !href.startsWith(origin))
-        .slice(0, 30);
+  const hasViewport = $('meta[name="viewport"]').length > 0;
+  const hasStructuredData = $('script[type="application/ld+json"]').length > 0;
 
-      const bodyText = document.body.innerText ?? '';
-      const wordCount = bodyText.split(/\s+/).filter((w) => w.length > 1).length;
+  // ── CTA Buttons ──────────────────────────────────────────
+  const ctaButtons = $(
+    'button, a.btn, .cta, [class*="cta"], [class*="button"]'
+  )
+    .map((_, el) => $(el).text().trim())
+    .get()
+    .filter((text) => text.length > 0 && text.length < 100)
+    .slice(0, 10);
 
-      const canonical = document.querySelector('link[rel="canonical"]') as HTMLLinkElement;
-      const robotsMeta = document.querySelector('meta[name="robots"]') as HTMLMetaElement;
-      const viewport = document.querySelector('meta[name="viewport"]');
-      const structuredData = document.querySelectorAll('script[type="application/ld+json"]');
+  const formCount = $('form').length;
 
-      const buttons = Array.from(
-        document.querySelectorAll('button, a.btn, .cta, [class*="cta"], [class*="button"]')
-      )
-        .map((el) => el.textContent?.trim() ?? '')
-        .filter((text) => text.length > 0 && text.length < 100)
-        .slice(0, 10);
+  console.log(`[Scraper] Scraped ${finalUrl} in ${pageLoadTime}ms via HTTP fetch`);
 
-      return {
-        title: document.title?.trim() ?? '',
-        metaDescription: getMeta('description'),
-        metaKeywords: getMeta('keywords'),
-        ogTitle: getProperty('og:title'),
-        ogDescription: getProperty('og:description'),
-        ogImage: getProperty('og:image'),
-        h1Tags, h2Tags, h3Tags,
-        imagesTotal: allImages.length,
-        imagesMissingAlt,
-        internalLinks, externalLinks,
-        wordCount,
-        hasCanonical: !!canonical,
-        canonicalUrl: canonical?.href ?? '',
-        hasRobotsMeta: !!robotsMeta,
-        robotsContent: robotsMeta?.content ?? '',
-        hasViewport: !!viewport,
-        hasStructuredData: structuredData.length > 0,
-        ctaButtons: buttons,
-        formCount: document.querySelectorAll('form').length,
-      };
-    });
-
-    return { url, finalUrl, pageLoadTime, ...data };
-
-  } finally {
-    if (browser) await browser.close();
-  }
+  return {
+    url: targetUrl,
+    finalUrl,
+    pageLoadTime,
+    title: $('title').text().trim(),
+    metaDescription: getMeta('description'),
+    metaKeywords: getMeta('keywords'),
+    ogTitle: getProperty('og:title'),
+    ogDescription: getProperty('og:description'),
+    ogImage: getProperty('og:image'),
+    h1Tags,
+    h2Tags,
+    h3Tags,
+    imagesTotal: allImages.length,
+    imagesMissingAlt,
+    internalLinks,
+    externalLinks,
+    wordCount,
+    hasCanonical,
+    canonicalUrl,
+    hasRobotsMeta,
+    robotsContent,
+    hasViewport,
+    hasStructuredData,
+    ctaButtons,
+    formCount,
+  };
 }
