@@ -1,6 +1,6 @@
 // lib/scraper.ts
 // Puppeteer-based page scraper — extracts all SEO and content signals
-// Works on Windows (local dev), Mac, Linux, and Vercel serverless
+// Uses @sparticuz/chromium-min on Vercel, local Chrome in dev
 
 import puppeteer, { Browser, Page } from 'puppeteer-core';
 import * as fs from 'fs';
@@ -33,12 +33,12 @@ export interface ScrapedPageData {
   pageLoadTime: number;
 }
 
-// ── Cross-platform Chrome path detection ─────────────────────
+// ── Chromium binary URL for @sparticuz/chromium-min ──────────
+// Pin to a specific version that matches puppeteer-core@22
+const CHROMIUM_REMOTE_EXECUTABLE_PATH =
+  'https://github.com/Sparticuz/chromium/releases/download/v123.0.1/chromium-v123.0.1-pack.tar';
 
-/**
- * Finds the locally installed Chrome/Chromium executable.
- * Checks common install paths for Windows, Mac, and Linux.
- */
+// ── Cross-platform Chrome path detection (local dev only) ────
 function getLocalChromePath(): string {
   const platform = process.platform;
   const candidates: string[] = [];
@@ -49,7 +49,6 @@ function getLocalChromePath(): string {
       'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
       `C:\\Users\\${process.env.USERNAME}\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe`,
       'C:\\Program Files\\Chromium\\Application\\chrome.exe',
-      // Edge fallback (also Chromium-based, works with puppeteer-core)
       'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
       'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
     );
@@ -70,19 +69,17 @@ function getLocalChromePath(): string {
 
   for (const p of candidates) {
     if (fs.existsSync(p)) {
-      console.log(`[Scraper] Using Chrome at: ${p}`);
+      console.log(`[Scraper] Using local Chrome at: ${p}`);
       return p;
     }
   }
 
   throw new Error(
-    `Chrome not found. Please install Google Chrome: https://www.google.com/chrome/\n` +
-    `Searched:\n${candidates.join('\n')}`
+    `Chrome not found. Please install Google Chrome.\nSearched:\n${candidates.join('\n')}`
   );
 }
 
 // ── Main scrape function ──────────────────────────────────────
-
 export async function scrapePage(url: string): Promise<ScrapedPageData> {
   let browser: Browser | null = null;
 
@@ -91,25 +88,31 @@ export async function scrapePage(url: string): Promise<ScrapedPageData> {
       process.env.VERCEL === '1' || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
 
     let executablePath: string;
+    let launchArgs: string[];
 
     if (isServerless) {
-      const chromium = (await import('@sparticuz/chromium')).default;
-      executablePath = await chromium.executablePath();
+      // Use chromium-min — downloads binary from GitHub at runtime
+      // This keeps the function bundle well under Vercel's 50MB limit
+      const chromium = (await import('@sparticuz/chromium-min')).default;
+      executablePath = await chromium.executablePath(CHROMIUM_REMOTE_EXECUTABLE_PATH);
+      launchArgs = chromium.args;
+      console.log('[Scraper] Serverless mode — using @sparticuz/chromium-min');
     } else {
       executablePath = getLocalChromePath();
-    }
-
-    browser = await puppeteer.launch({
-      executablePath,
-      headless: true,
-      args: [
+      launchArgs = [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
         '--no-first-run',
         '--disable-extensions',
-      ],
+      ];
+    }
+
+    browser = await puppeteer.launch({
+      executablePath,
+      headless: true,
+      args: launchArgs,
     });
 
     const page: Page = await browser.newPage();
@@ -150,8 +153,14 @@ export async function scrapePage(url: string): Promise<ScrapedPageData> {
 
       const allLinks = Array.from(document.querySelectorAll('a[href]'));
       const origin = window.location.origin;
-      const internalLinks = allLinks.map((a) => (a as HTMLAnchorElement).href).filter((href) => href.startsWith(origin)).slice(0, 50);
-      const externalLinks = allLinks.map((a) => (a as HTMLAnchorElement).href).filter((href) => href.startsWith('http') && !href.startsWith(origin)).slice(0, 30);
+      const internalLinks = allLinks
+        .map((a) => (a as HTMLAnchorElement).href)
+        .filter((href) => href.startsWith(origin))
+        .slice(0, 50);
+      const externalLinks = allLinks
+        .map((a) => (a as HTMLAnchorElement).href)
+        .filter((href) => href.startsWith('http') && !href.startsWith(origin))
+        .slice(0, 30);
 
       const bodyText = document.body.innerText ?? '';
       const wordCount = bodyText.split(/\s+/).filter((w) => w.length > 1).length;
@@ -161,7 +170,9 @@ export async function scrapePage(url: string): Promise<ScrapedPageData> {
       const viewport = document.querySelector('meta[name="viewport"]');
       const structuredData = document.querySelectorAll('script[type="application/ld+json"]');
 
-      const buttons = Array.from(document.querySelectorAll('button, a.btn, .cta, [class*="cta"], [class*="button"]'))
+      const buttons = Array.from(
+        document.querySelectorAll('button, a.btn, .cta, [class*="cta"], [class*="button"]')
+      )
         .map((el) => el.textContent?.trim() ?? '')
         .filter((text) => text.length > 0 && text.length < 100)
         .slice(0, 10);
@@ -190,6 +201,7 @@ export async function scrapePage(url: string): Promise<ScrapedPageData> {
     });
 
     return { url, finalUrl, pageLoadTime, ...data };
+
   } finally {
     if (browser) await browser.close();
   }
