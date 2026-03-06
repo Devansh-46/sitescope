@@ -1,9 +1,4 @@
 /** @type {import('next').NextConfig} */
-const nextConfig = {
-  serverExternalPackages: [
-    'lighthouse',
-    'chrome-launcher',
-  ],
-};
+const nextConfig = {};
 
 module.exports = nextConfig;
