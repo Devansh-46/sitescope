@@ -101,7 +101,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <TopFixes fixes={audit.topFixes} />
-          {lighthouse && <LighthouseMetrics data={lighthouse} />}
+          <LighthouseMetrics data={lighthouse ?? { available: false, performance: -1, accessibility: -1, bestPractices: -1, seo: -1, firstContentfulPaint: 'N/A', largestContentfulPaint: 'N/A', totalBlockingTime: 'N/A', cumulativeLayoutShift: 'N/A', speedIndex: 'N/A', timeToInteractive: 'N/A', opportunities: [], diagnostics: [] }} />
         </div>
 
         <div>

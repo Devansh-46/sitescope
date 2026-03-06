@@ -49,6 +49,35 @@ function ScoreCircle({ score, label }: { score: number; label: string }) {
 }
 
 export default function LighthouseMetrics({ data }: LighthouseMetricsProps) {
+  if (!data.available) {
+    return (
+      <div className="panel p-6" style={{ animation: 'fadeUp 0.5s ease 400ms both' }}>
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-8 h-8 rounded-lg bg-signal/10 border border-signal/20 flex items-center justify-center">
+            <svg className="w-4 h-4 text-signal" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="font-display font-bold text-text-primary text-lg">Lighthouse Scores</h2>
+            <p className="text-text-muted text-xs font-mono">Google Lighthouse audit</p>
+          </div>
+        </div>
+        <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
+          <div className="w-10 h-10 rounded-full bg-warn/10 border border-warn/20 flex items-center justify-center">
+            <svg className="w-5 h-5 text-warn" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
+            </svg>
+          </div>
+          <p className="text-sm font-semibold text-text-primary">Lighthouse Unavailable</p>
+          <p className="text-xs text-text-muted max-w-[200px] leading-relaxed">
+            Chrome cannot run in serverless. Performance insights are included in the AI analysis.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="panel p-6" style={{ animation: 'fadeUp 0.5s ease 400ms both' }}>
       <div className="flex items-center gap-3 mb-6">
