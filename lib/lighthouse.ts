@@ -1,6 +1,7 @@
 // lib/lighthouse.ts
 // Runs Google Lighthouse v11 programmatically to extract performance scores
 // Uses chrome-launcher to spin up a Chrome instance
+// Returns null on Vercel/serverless where Chrome is unavailable
 
 export interface LighthouseScores {
   performance: number;
@@ -15,6 +16,7 @@ export interface LighthouseScores {
   timeToInteractive: string;
   opportunities: LighthouseOpportunity[];
   diagnostics: string[];
+  available: boolean; // false when Chrome not found (Vercel)
 }
 
 export interface LighthouseOpportunity {
@@ -26,11 +28,19 @@ export interface LighthouseOpportunity {
 
 /**
  * Runs Lighthouse on the given URL and returns structured scores.
- * Falls back to placeholder scores if Lighthouse fails.
+ * Returns an object with available=false if Lighthouse cannot run (serverless env).
  */
 export async function runLighthouse(url: string): Promise<LighthouseScores> {
+  // On Vercel, Chrome is not available — skip immediately
+  const isServerless =
+    process.env.VERCEL === '1' || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+
+  if (isServerless) {
+    console.log('[Lighthouse] Skipping — serverless environment detected, no Chrome available');
+    return unavailableFallback();
+  }
+
   try {
-    // Dynamic imports — Lighthouse v11 is ESM-only
     const { default: lighthouse } = await import('lighthouse');
     const chromeLauncher = await import('chrome-launcher');
 
@@ -92,6 +102,7 @@ export async function runLighthouse(url: string): Promise<LighthouseScores> {
     const metricValue = (id: string): string => (audits[id]?.displayValue as string) ?? 'N/A';
 
     return {
+      available: true,
       performance: score('performance'),
       accessibility: score('accessibility'),
       bestPractices: score('best-practices'),
@@ -107,14 +118,24 @@ export async function runLighthouse(url: string): Promise<LighthouseScores> {
     };
   } catch (error) {
     console.error('[Lighthouse] Failed:', error);
-    // Graceful fallback — report still generates via AI
-    return {
-      performance: 0, accessibility: 0, bestPractices: 0, seo: 0,
-      firstContentfulPaint: 'N/A', largestContentfulPaint: 'N/A',
-      totalBlockingTime: 'N/A', cumulativeLayoutShift: 'N/A',
-      speedIndex: 'N/A', timeToInteractive: 'N/A',
-      opportunities: [],
-      diagnostics: ['Lighthouse analysis unavailable — Chrome not found or timed out.'],
-    };
+    return unavailableFallback();
   }
+}
+
+function unavailableFallback(): LighthouseScores {
+  return {
+    available: false,
+    performance: -1,
+    accessibility: -1,
+    bestPractices: -1,
+    seo: -1,
+    firstContentfulPaint: 'N/A',
+    largestContentfulPaint: 'N/A',
+    totalBlockingTime: 'N/A',
+    cumulativeLayoutShift: 'N/A',
+    speedIndex: 'N/A',
+    timeToInteractive: 'N/A',
+    opportunities: [],
+    diagnostics: [],
+  };
 }
