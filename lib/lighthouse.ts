@@ -1,7 +1,7 @@
 // lib/lighthouse.ts
-// Runs Google Lighthouse v11 programmatically to extract performance scores
-// Uses chrome-launcher to spin up a Chrome instance
-// Returns null on Vercel/serverless where Chrome is unavailable
+// Fetches Lighthouse scores via Google PageSpeed Insights API
+// No Chrome, no system libraries — works perfectly on Vercel serverless
+// Free API: 25,000 requests/day (no key needed, or add PAGESPEED_API_KEY for higher limits)
 
 export interface LighthouseScores {
   performance: number;
@@ -16,7 +16,7 @@ export interface LighthouseScores {
   timeToInteractive: string;
   opportunities: LighthouseOpportunity[];
   diagnostics: string[];
-  available: boolean; // false when Chrome not found (Vercel)
+  available: boolean;
 }
 
 export interface LighthouseOpportunity {
@@ -26,80 +26,72 @@ export interface LighthouseOpportunity {
   savings: string;
 }
 
-/**
- * Runs Lighthouse on the given URL and returns structured scores.
- * Returns an object with available=false if Lighthouse cannot run (serverless env).
- */
 export async function runLighthouse(url: string): Promise<LighthouseScores> {
-  // On Vercel, Chrome is not available — skip immediately
-  const isServerless =
-    process.env.VERCEL === '1' || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
-
-  if (isServerless) {
-    console.log('[Lighthouse] Skipping — serverless environment detected, no Chrome available');
-    return unavailableFallback();
-  }
-
   try {
-    const { default: lighthouse } = await import('lighthouse');
-    const chromeLauncher = await import('chrome-launcher');
+    const apiKey = process.env.PAGESPEED_API_KEY ?? '';
+    const apiUrl = new URL('https://www.googleapis.com/pagespeedonline/v5/runPagespeed');
+    apiUrl.searchParams.set('url', url);
+    apiUrl.searchParams.set('strategy', 'desktop');
+    apiUrl.searchParams.set('category', 'performance');
+    apiUrl.searchParams.set('category', 'accessibility');
+    apiUrl.searchParams.set('category', 'best-practices');
+    apiUrl.searchParams.set('category', 'seo');
+    if (apiKey) apiUrl.searchParams.set('key', apiKey);
 
-    const chrome = await chromeLauncher.launch({
-      chromeFlags: [
-        '--headless',
-        '--no-sandbox',
-        '--disable-gpu',
-        '--disable-dev-shm-usage',
-      ],
-    });
+    // Build correct URL with multiple category params (URLSearchParams dedupes, so build manually)
+    const base = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed';
+    const categories = ['performance', 'accessibility', 'best-practices', 'seo']
+      .map((c) => `category=${c}`)
+      .join('&');
+    const keyParam = apiKey ? `&key=${apiKey}` : '';
+    const fullUrl = `${base}?url=${encodeURIComponent(url)}&strategy=desktop&${categories}${keyParam}`;
 
-    const options = {
-      logLevel: 'error' as const,
-      output: 'json' as const,
-      onlyCategories: ['performance', 'accessibility', 'best-practices', 'seo'],
-      port: chrome.port,
-      formFactor: 'desktop' as const,
-      throttlingMethod: 'simulate' as const,
-      screenEmulation: {
-        mobile: false,
-        width: 1350,
-        height: 940,
-        deviceScaleFactor: 1,
-        disabled: false,
-      },
-    };
+    console.log('[Lighthouse] Fetching PageSpeed Insights for:', url);
 
-    const lighthouseTimeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Lighthouse timed out after 60s')), 60_000)
-    );
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 55_000); // 55s timeout
 
-    const runnerResult = await Promise.race([lighthouse(url, options), lighthouseTimeout]);
-    await chrome.kill();
+    const response = await fetch(fullUrl, { signal: controller.signal });
+    clearTimeout(timeout);
 
-    if (!runnerResult?.lhr) throw new Error('Lighthouse returned no results');
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`PageSpeed API returned ${response.status}: ${errText.slice(0, 200)}`);
+    }
 
-    const { lhr } = runnerResult;
-    const { categories, audits } = lhr;
+    const data = await response.json();
+    const lhr = data.lighthouseResult;
 
-    const opportunities: LighthouseOpportunity[] = Object.values(audits)
-      .filter((a) => a.details?.type === 'opportunity' && a.score !== null && (a.score as number) < 0.9)
+    if (!lhr) {
+      throw new Error('No lighthouseResult in PageSpeed response');
+    }
+
+    const { categories: cats, audits } = lhr;
+
+    const score = (key: string): number =>
+      Math.round(((cats[key]?.score as number) ?? 0) * 100);
+
+    const metricValue = (id: string): string =>
+      (audits[id]?.displayValue as string) ?? 'N/A';
+
+    const opportunities: LighthouseOpportunity[] = Object.values(audits as Record<string, any>)
+      .filter((a) => a.details?.type === 'opportunity' && a.score !== null && a.score < 0.9)
       .slice(0, 5)
       .map((a) => ({
         id: a.id,
         title: a.title,
-        description: a.description,
-        savings: (a.details as any)?.overallSavingsMs
-          ? `Potential savings of ${((a.details as any).overallSavingsMs / 1000).toFixed(1)}s`
+        description: a.description ?? '',
+        savings: a.details?.overallSavingsMs
+          ? `Potential savings of ${(a.details.overallSavingsMs / 1000).toFixed(1)}s`
           : 'Improvement opportunity',
       }));
 
-    const diagnostics: string[] = Object.values(audits)
-      .filter((a) => a.details?.type === 'table' && a.score !== null && (a.score as number) < 0.5 && a.title)
+    const diagnostics: string[] = Object.values(audits as Record<string, any>)
+      .filter((a) => a.details?.type === 'table' && a.score !== null && a.score < 0.5 && a.title)
       .slice(0, 5)
-      .map((a) => a.title);
+      .map((a) => a.title as string);
 
-    const score = (key: string): number => Math.round(((categories[key]?.score as number) ?? 0) * 100);
-    const metricValue = (id: string): string => (audits[id]?.displayValue as string) ?? 'N/A';
+    console.log(`[Lighthouse] PageSpeed complete — Performance: ${score('performance')}`);
 
     return {
       available: true,
@@ -117,25 +109,21 @@ export async function runLighthouse(url: string): Promise<LighthouseScores> {
       diagnostics,
     };
   } catch (error) {
-    console.error('[Lighthouse] Failed:', error);
-    return unavailableFallback();
+    console.error('[Lighthouse] PageSpeed Insights failed:', error);
+    return {
+      available: false,
+      performance: -1,
+      accessibility: -1,
+      bestPractices: -1,
+      seo: -1,
+      firstContentfulPaint: 'N/A',
+      largestContentfulPaint: 'N/A',
+      totalBlockingTime: 'N/A',
+      cumulativeLayoutShift: 'N/A',
+      speedIndex: 'N/A',
+      timeToInteractive: 'N/A',
+      opportunities: [],
+      diagnostics: [],
+    };
   }
-}
-
-function unavailableFallback(): LighthouseScores {
-  return {
-    available: false,
-    performance: -1,
-    accessibility: -1,
-    bestPractices: -1,
-    seo: -1,
-    firstContentfulPaint: 'N/A',
-    largestContentfulPaint: 'N/A',
-    totalBlockingTime: 'N/A',
-    cumulativeLayoutShift: 'N/A',
-    speedIndex: 'N/A',
-    timeToInteractive: 'N/A',
-    opportunities: [],
-    diagnostics: [],
-  };
 }
