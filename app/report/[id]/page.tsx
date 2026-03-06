@@ -1,18 +1,16 @@
 // app/report/[id]/page.tsx
 import { notFound } from 'next/navigation';
 import type { AuditReport } from '@/lib/ai';
-import type { LighthouseScores } from '@/lib/lighthouse';
 import ReportHeader from '@/components/ReportHeader';
 import CategoryCard from '@/components/CategoryCard';
 import TopFixes from '@/components/TopFixes';
 import ContactCTA from '@/components/ContactCTA';
-import LighthouseMetrics from '@/components/LighthouseMetrics';
+import PageSpeedPanel from '@/components/PageSpeedPanel';
 import ProcessingScreen from '@/components/ProcessingScreen';
 
 export default async function ReportPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  // Lazy import supabase — prevents env var crashes during SSR module init
   const { supabase } = await import('@/lib/supabase');
 
   const { data: report, error } = await supabase
@@ -21,25 +19,18 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
     .eq('id', id)
     .single();
 
-  // Log actual error for debugging — don't silently 404
   if (error) {
     console.error('[ReportPage] Supabase error:', error.code, error.message);
-    // PGRST116 = "no rows returned" — means report doesn't exist yet or wrong ID
-    if (error.code === 'PGRST116') {
-      notFound();
-    }
-    // Other DB errors — show a message instead of 404
+    if (error.code === 'PGRST116') notFound();
     return <ErrorScreen message={`Database error: ${error.message}`} />;
   }
 
   if (!report) notFound();
 
-  // Still processing — show spinner with auto-refresh
   if (['PENDING', 'SCRAPING', 'ANALYZING'].includes(report.status)) {
     return <ProcessingScreen url={report.url} status={report.status} />;
   }
 
-  // Analysis failed
   if (report.status === 'FAILED') {
     return (
       <div className="min-h-screen bg-void flex items-center justify-center p-6">
@@ -62,11 +53,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
     );
   }
 
-  // Completed — render full report
   const audit = report.audit_result as unknown as AuditReport;
-  const lighthouse = report.lighthouse_data as unknown as LighthouseScores | null;
-
-  // audit_result missing even though status=COMPLETE — shouldn't happen but guard it
   if (!audit) {
     return <ErrorScreen message="Report data is incomplete. Please run the audit again." />;
   }
@@ -99,9 +86,11 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
           />
         </div>
 
+        {/* Top row: Priority Fixes + PageSpeed Insights side-by-side */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <TopFixes fixes={audit.topFixes} />
-          <LighthouseMetrics data={lighthouse ?? { available: false, performance: -1, accessibility: -1, bestPractices: -1, seo: -1, firstContentfulPaint: 'N/A', largestContentfulPaint: 'N/A', totalBlockingTime: 'N/A', cumulativeLayoutShift: 'N/A', speedIndex: 'N/A', timeToInteractive: 'N/A', opportunities: [], diagnostics: [] }} />
+          {/* PageSpeedPanel fetches data client-side via /api/pagespeed */}
+          <PageSpeedPanel url={report.url} />
         </div>
 
         <div>
@@ -123,7 +112,10 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
         <footer className="py-8 text-center text-text-muted text-xs font-mono border-t border-border flex flex-col gap-2">
           <p>SiteScope by Plain & Pixel — AI-powered website audit</p>
           <p>
-            Developed by <a href="https://plainnpixel.tech" target="_blank" rel="noopener noreferrer" className="hover:text-signal transition-colors underline underline-offset-2">Plain & Pixel</a>
+            Developed by{' '}
+            <a href="https://plainnpixel.tech" target="_blank" rel="noopener noreferrer" className="hover:text-signal transition-colors underline underline-offset-2">
+              Plain & Pixel
+            </a>
           </p>
           <p>
             Contact: <a href="mailto:plain.n.pixel@gmail.com" className="hover:text-signal transition-colors">plain.n.pixel@gmail.com</a>

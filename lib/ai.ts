@@ -4,7 +4,7 @@
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ScrapedPageData } from './scraper';
-import { LighthouseScores } from './lighthouse';
+import { LighthouseScores } from './pagespeed';
 
 // ============================================================
 // Type Definitions
