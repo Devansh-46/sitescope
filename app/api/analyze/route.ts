@@ -24,7 +24,6 @@ function extractDomain(url: string): string {
 async function runAnalysisPipeline(reportId: string, url: string) {
   const { supabase } = await import('@/lib/supabase');
   const { scrapePage } = await import('@/lib/scraper');
-  const { runLighthouse } = await import('@/lib/pagespeed');
   const { generateAuditReport } = await import('@/lib/ai');
 
   // Hard timeout — kill the pipeline after 55 seconds
