@@ -7,6 +7,9 @@
     },
     "app/api/pdf/[id]/route.ts": {
       "maxDuration": 30
+    },
+    "app/api/health/route.ts": {
+      "maxDuration": 15
     }
   }
 }
