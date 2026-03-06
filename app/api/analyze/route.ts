@@ -46,16 +46,12 @@ async function runAnalysisPipeline(reportId: string, url: string) {
 
     const scrapePromise = scrapePage(url);
 
-    // PageSpeed with its own 25s timeout so it never blocks the pipeline
-    const pagespeedPromise = Promise.race([
-      runLighthouse(url),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 25_000)),
+    const [scrapeResult] = await Promise.allSettled([
+      scrapePromise,
     ]);
 
-    const [scrapeResult, lighthouseResult] = await Promise.allSettled([
-      scrapePromise,
-      pagespeedPromise,
-    ]);
+    // PageSpeed runs separately via /api/pagespeed — not blocking the AI pipeline
+    const lighthouseResult = { status: 'fulfilled' as const, value: null };
 
     // Handle scrape failure
     if (scrapeResult.status === 'rejected') {
