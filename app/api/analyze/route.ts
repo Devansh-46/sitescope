@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { after } from 'next/server';
 import { z } from 'zod';
+import { extractAEOSignals, buildAEOReport } from '@/lib/aeo';
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ error: message }, { status });
@@ -45,7 +46,22 @@ async function runAnalysisPipeline(reportId: string, url: string) {
     await supabase.from('reports').update({ status: 'SCRAPING' }).eq('id', reportId);
 
     let scrapedData;
+    let rawHtml = '';
     try {
+      // Fetch raw HTML for AEO analysis before passing to scraper
+      try {
+        const htmlRes = await fetch(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          },
+          redirect: 'follow',
+        });
+        rawHtml = await htmlRes.text();
+      } catch {
+        // Non-fatal — scraper will re-fetch below
+      }
+
       scrapedData = await scrapePage(url);
       console.log('[pipeline] Scrape complete');
     } catch (e) {
@@ -61,7 +77,17 @@ async function runAnalysisPipeline(reportId: string, url: string) {
 
     await supabase.from('reports').update({ scraped_data: scrapedData }).eq('id', reportId);
 
-    // 2. AI analysis — pass empty lighthouse data (PageSpeed loads separately)
+    // 2. AEO Analysis — runs on raw HTML, pure JS, non-blocking (~5ms)
+    let aeoReport = null;
+    try {
+      const aeoSignals = extractAEOSignals(rawHtml, url);
+      aeoReport = buildAEOReport(aeoSignals, url);
+      console.log('[pipeline] AEO analysis complete. Score:', aeoReport.overallScore);
+    } catch (aeoError) {
+      console.warn('[AEO] Analysis failed (non-fatal):', aeoError);
+    }
+
+    // 3. AI analysis — pass empty lighthouse data (PageSpeed loads separately)
     console.log('[pipeline] Starting Gemini AI analysis...');
     await supabase.from('reports').update({ status: 'ANALYZING' }).eq('id', reportId);
 
@@ -89,11 +115,12 @@ async function runAnalysisPipeline(reportId: string, url: string) {
       return;
     }
 
-    // 3. Mark complete
+    // 4. Mark complete — save AI report + AEO report together
     clearTimeout(pipelineTimeout);
     const { error: updateError } = await supabase.from('reports').update({
       audit_result: auditResult,
       overall_score: auditResult.overallScore,
+      aeo_report: aeoReport,
       status: 'COMPLETE',
     }).eq('id', reportId);
 
