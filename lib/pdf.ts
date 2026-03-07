@@ -4,15 +4,17 @@
 // Runs server-side only
 
 import type { AuditReport } from './ai';
+import type { AEOReport } from './aeo';
 
 /**
- * Generates a PDF buffer from an AuditReport.
+ * Generates a PDF buffer from an AuditReport (+ optional AEOReport).
  * Returns a Buffer that can be streamed as a download.
  */
 export async function generatePDFReport(
   report: AuditReport,
   url: string,
-  domain: string
+  domain: string,
+  aeoReport?: AEOReport | null
 ): Promise<Buffer> {
   // Dynamic import — jsPDF works both client and server
   const { jsPDF } = await import('jspdf');
@@ -49,6 +51,15 @@ export async function generatePDFReport(
     if (score >= 60) return [255, 180, 0];
     if (score >= 45) return [255, 120, 0];
     return [255, 50, 80];
+  };
+
+  const hexToRgb = (hex: string): [number, number, number] => {
+    const clean = hex.replace('#', '');
+    return [
+      parseInt(clean.substring(0, 2), 16),
+      parseInt(clean.substring(2, 4), 16),
+      parseInt(clean.substring(4, 6), 16),
+    ];
   };
 
   // ── Cover Page ─────────────────────────────────────────────
@@ -109,7 +120,6 @@ export async function generatePDFReport(
   addSection('Category Scores');
 
   const scoreRows = Object.entries(report.sections).map(([name, section]) => {
-    const [sr, sg, sb] = scoreColor(section.score);
     return [name, `${section.score}/100`, section.grade, section.summary];
   });
 
@@ -202,6 +212,134 @@ export async function generatePDFReport(
     });
 
     y = (doc as any).lastAutoTable.finalY + 15;
+  }
+
+  // ── AEO Section (if available) ────────────────────────────
+  if (aeoReport) {
+    doc.addPage();
+    y = margin;
+
+    // AEO Header
+    doc.setFillColor(10, 22, 40);
+    doc.rect(0, 0, pageW, 14, 'F');
+    doc.setTextColor(59, 130, 246);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('ANSWER ENGINE OPTIMIZATION (AEO)', margin, 9);
+    y = 22;
+
+    // Score + readiness row
+    const gradeColorHex = {
+      A: '#10b981', B: '#3b82f6', C: '#f59e0b', D: '#f97316', F: '#ef4444',
+    }[aeoReport.overallGrade] ?? '#6b7280';
+    const [ar, ag, ab] = hexToRgb(gradeColorHex);
+
+    doc.setFillColor(ar, ag, ab);
+    doc.setFontSize(28);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(ar, ag, ab);
+    doc.text(String(aeoReport.overallScore), margin, y + 14);
+    doc.setFontSize(10);
+    doc.text(`Grade ${aeoReport.overallGrade}`, margin + 18, y + 14);
+
+    doc.setTextColor(120, 120, 120);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`AI Readiness: ${aeoReport.aeoReadiness}`, margin + 50, y + 6);
+    doc.text(`Citation Probability: ${aeoReport.aiCitationProbability}`, margin + 50, y + 13);
+    doc.text(`Schema Types Detected: ${aeoReport.signals.schemaTypes.length}`, margin + 50, y + 20);
+    y += 32;
+
+    // Summary
+    doc.setFontSize(8.5);
+    doc.setFont('helvetica', 'italic');
+    doc.setTextColor(90, 90, 90);
+    const aeoSummLines = doc.splitTextToSize(aeoReport.summary, contentW);
+    doc.text(aeoSummLines, margin, y);
+    y += aeoSummLines.length * 5 + 10;
+
+    // Category scores
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(40, 40, 40);
+    doc.text('Category Scores', margin, y);
+    y += 8;
+
+    const aeoCategories = [
+      { name: 'Structured Data', score: aeoReport.categories.structuredData.score, grade: aeoReport.categories.structuredData.grade },
+      { name: 'Content Structure', score: aeoReport.categories.contentStructure.score, grade: aeoReport.categories.contentStructure.grade },
+      { name: 'Authority & Trust', score: aeoReport.categories.authoritySignals.score, grade: aeoReport.categories.authoritySignals.grade },
+      { name: 'Featured Snippets', score: aeoReport.categories.featuredSnippets.score, grade: aeoReport.categories.featuredSnippets.grade },
+      { name: 'Conversational', score: aeoReport.categories.conversationalOptimization.score, grade: aeoReport.categories.conversationalOptimization.grade },
+    ];
+
+    for (const cat of aeoCategories) {
+      const catHex = { A: '#10b981', B: '#3b82f6', C: '#f59e0b', D: '#f97316', F: '#ef4444' }[cat.grade] ?? '#6b7280';
+      const [cr, cg, cb] = hexToRgb(catHex);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(70, 70, 70);
+      doc.text(cat.name, margin, y + 4);
+
+      // Bar background
+      doc.setFillColor(220, 220, 230);
+      doc.rect(margin + 52, y, contentW - 66, 4, 'F');
+
+      // Bar fill
+      doc.setFillColor(cr, cg, cb);
+      doc.rect(margin + 52, y, ((contentW - 66) * cat.score) / 100, 4, 'F');
+
+      // Score label
+      doc.setTextColor(cr, cg, cb);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`${cat.score}  ${cat.grade}`, margin + contentW - 12, y + 4);
+
+      y += 9;
+    }
+
+    y += 6;
+
+    // Top opportunities
+    if (aeoReport.topOpportunities.length > 0) {
+      if (y > 220) { doc.addPage(); y = margin; }
+
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(40, 40, 40);
+      doc.text('Top AEO Opportunities', margin, y);
+      y += 8;
+
+      for (const opp of aeoReport.topOpportunities.slice(0, 5)) {
+        const impHex = opp.estimatedImpact === 'High' ? '#ef4444' : opp.estimatedImpact === 'Medium' ? '#f59e0b' : '#6b7280';
+        const [ir, ig, ib] = hexToRgb(impHex);
+
+        doc.setFillColor(ir, ig, ib);
+        doc.rect(margin, y - 1, 3, 8, 'F');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(40, 40, 40);
+        doc.text(`${opp.priority}. ${opp.title}`, margin + 6, y + 4);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(120, 120, 120);
+        doc.text(`${opp.estimatedImpact} Impact · ${opp.effort} Effort · ${opp.category}`, margin + 6, y + 9);
+        y += 15;
+      }
+    }
+
+    // Competitive insight
+    y += 4;
+    doc.setFillColor(240, 245, 255);
+    const insightLines = doc.splitTextToSize(`Competitive Insight: ${aeoReport.competitiveInsight}`, contentW - 8);
+    doc.rect(margin, y - 2, contentW, insightLines.length * 5 + 8, 'F');
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8);
+    doc.setTextColor(59, 100, 180);
+    doc.text(insightLines, margin + 4, y + 4);
+    y += insightLines.length * 5 + 12;
   }
 
   // ── Footer on every page ───────────────────────────────────

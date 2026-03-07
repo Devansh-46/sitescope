@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generatePDFReport } from '@/lib/pdf';
 import type { AuditReport } from '@/lib/ai';
+import type { AEOReport } from '@/lib/aeo';
 
 export async function GET(
   _request: NextRequest,
@@ -16,7 +17,7 @@ export async function GET(
     const { supabase } = await import('@/lib/supabase');
     const { data, error } = await supabase
       .from('reports')
-      .select('url, domain, audit_result, status')
+      .select('url, domain, audit_result, aeo_report, status')
       .eq('id', id)
       .single();
 
@@ -28,10 +29,13 @@ export async function GET(
       return NextResponse.json({ error: 'Report not complete' }, { status: 400 });
     }
 
+    const aeoReport = (data.aeo_report as unknown as AEOReport) ?? null;
+
     const pdfBuffer = await generatePDFReport(
       data.audit_result as unknown as AuditReport,
       data.url,
-      data.domain
+      data.domain,
+      aeoReport
     );
 
     const filename = `sitescope-${data.domain}-${new Date().toISOString().split('T')[0]}.pdf`;

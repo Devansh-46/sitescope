@@ -1,12 +1,15 @@
 // app/report/[id]/page.tsx
 import { notFound } from 'next/navigation';
 import type { AuditReport } from '@/lib/ai';
+import type { AEOReport } from '@/lib/aeo';
 import ReportHeader from '@/components/ReportHeader';
 import CategoryCard from '@/components/CategoryCard';
 import TopFixes from '@/components/TopFixes';
 import ContactCTA from '@/components/ContactCTA';
 import PageSpeedPanel from '@/components/PageSpeedPanel';
 import ProcessingScreen from '@/components/ProcessingScreen';
+import AEOPanel from '@/components/AEOPanel';
+import AEOBadge from '@/components/AEOBadge';
 
 export default async function ReportPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -15,7 +18,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
 
   const { data: report, error } = await supabase
     .from('reports')
-    .select('id, url, domain, overall_score, status, error_msg, audit_result, lighthouse_data, created_at')
+    .select('id, url, domain, overall_score, status, error_msg, audit_result, lighthouse_data, aeo_report, created_at')
     .eq('id', id)
     .single();
 
@@ -58,6 +61,9 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
     return <ErrorScreen message="Report data is incomplete. Please run the audit again." />;
   }
 
+  // AEO report — may be null for older reports (before the column was added)
+  const aeoReport = (report.aeo_report as unknown as AEOReport) ?? null;
+
   return (
     <div className="min-h-screen bg-void">
       <nav className="border-b border-border bg-panel/80 backdrop-blur-sm sticky top-0 z-20">
@@ -67,9 +73,13 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
             <span className="text-signal">Scope</span>
             <span className="text-[10px] text-text-muted ml-1 font-normal tracking-normal self-end mb-0.5">by Plain & Pixel</span>
           </a>
-          <span className="text-xs font-mono text-text-muted border border-border px-3 py-1 rounded-full">
-            AUDIT COMPLETE
-          </span>
+          <div className="flex items-center gap-3">
+            {/* AEO Badge in nav — shows at a glance */}
+            {aeoReport && <AEOBadge report={aeoReport} size="sm" />}
+            <span className="text-xs font-mono text-text-muted border border-border px-3 py-1 rounded-full">
+              AUDIT COMPLETE
+            </span>
+          </div>
         </div>
       </nav>
 
@@ -92,6 +102,10 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
           {/* PageSpeedPanel fetches data client-side via /api/pagespeed */}
           <PageSpeedPanel url={report.url} />
         </div>
+
+        {/* AEO Panel — full width, below the top row */}
+        {/* Lazy-loads its own analysis if not saved from pipeline */}
+        <AEOPanel url={report.url} initialReport={aeoReport} />
 
         <div>
           <h2 className="font-display font-bold text-xl text-text-primary mb-5 flex items-center gap-2">
