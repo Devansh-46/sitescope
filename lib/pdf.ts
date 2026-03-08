@@ -5,6 +5,7 @@
 
 import type { AuditReport } from './ai';
 import type { AEOReport } from './aeo';
+import type { GEOReport } from './geo';
 
 /**
  * Generates a PDF buffer from an AuditReport (+ optional AEOReport).
@@ -14,7 +15,8 @@ export async function generatePDFReport(
   report: AuditReport,
   url: string,
   domain: string,
-  aeoReport?: AEOReport | null
+  aeoReport?: AEOReport | null,
+  geoReport?: GEOReport | null
 ): Promise<Buffer> {
   // Dynamic import — jsPDF works both client and server
   const { jsPDF } = await import('jspdf');
@@ -340,6 +342,141 @@ export async function generatePDFReport(
     doc.setTextColor(59, 100, 180);
     doc.text(insightLines, margin + 4, y + 4);
     y += insightLines.length * 5 + 12;
+  }
+
+  // ── GEO Section (if available) ────────────────────────────
+  if (geoReport) {
+    doc.addPage();
+    y = margin;
+
+    // GEO Header
+    doc.setFillColor(139, 92, 246);
+    doc.rect(0, 0, pageW, 18, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(255, 255, 255);
+    doc.text('GENERATIVE ENGINE OPTIMIZATION (GEO)', margin, 9);
+    doc.text('How AI Models Represent Your Brand', pageW - margin - 2, 9, { align: 'right' });
+    y = 30;
+
+    const gradeColorGeo = {
+      A: [16, 185, 129],
+      B: [59, 130, 246],
+      C: [245, 158, 11],
+      D: [249, 115, 22],
+      F: [239, 68, 68],
+    }[geoReport.overallGrade] ?? [107, 114, 128];
+
+    doc.setFillColor(...(gradeColorGeo as [number, number, number]));
+    doc.roundedRect(margin, y, 40, 25, 3, 3, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.text(String(geoReport.overallScore), margin, y + 14);
+    doc.setFontSize(9);
+    doc.text(`Grade ${geoReport.overallGrade}`, margin + 18, y + 14);
+
+    doc.setTextColor(30, 30, 30);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text(`GEO Readiness: ${geoReport.geoReadiness}`, margin + 50, y + 6);
+    doc.text(`AI Mention Probability: ${geoReport.aiMentionProbability}`, margin + 50, y + 13);
+    doc.text(`Social Profiles Linked: ${geoReport.signals.socialProfilesCount}`, margin + 50, y + 20);
+    y += 35;
+
+    // Simulated AI brand summary
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8);
+    doc.setTextColor(80, 60, 120);
+    doc.setFillColor(245, 240, 255);
+    const brandSummLines = doc.splitTextToSize(`"${geoReport.brandSummary}"`, contentW - 8);
+    doc.rect(margin, y - 2, contentW, brandSummLines.length * 5 + 8, 'F');
+    doc.text(brandSummLines, margin + 4, y + 4);
+    y += brandSummLines.length * 5 + 12;
+
+    // Summary text
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(50, 50, 50);
+    const geoSummLines = doc.splitTextToSize(geoReport.summary, contentW);
+    doc.text(geoSummLines, margin, y);
+    y += geoSummLines.length * 5 + 10;
+
+    // Category scores
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(30, 30, 30);
+    doc.text('Category Scores', margin, y);
+    y += 7;
+
+    const geoCategories = [
+      { name: 'Brand Identity', score: geoReport.categories.brandIdentity.score, grade: geoReport.categories.brandIdentity.grade },
+      { name: 'Trust & Authority', score: geoReport.categories.trustAuthority.score, grade: geoReport.categories.trustAuthority.grade },
+      { name: 'Knowledge Panel', score: geoReport.categories.knowledgePanel.score, grade: geoReport.categories.knowledgePanel.grade },
+      { name: 'AI Discoverability', score: geoReport.categories.aiDiscoverability.score, grade: geoReport.categories.aiDiscoverability.grade },
+      { name: 'Citation Worthiness', score: geoReport.categories.citationWorthiness.score, grade: geoReport.categories.citationWorthiness.grade },
+    ];
+
+    for (const cat of geoCategories) {
+      const gc = { A: [16, 185, 129], B: [59, 130, 246], C: [245, 158, 11], D: [249, 115, 22], F: [239, 68, 68] }[cat.grade] ?? [107, 114, 128];
+      const barW = (cat.score / 100) * (contentW - 60);
+      doc.setFillColor(230, 230, 240);
+      doc.rect(margin + 60, y - 3, contentW - 60, 6, 'F');
+      doc.setFillColor(...(gc as [number, number, number]));
+      doc.rect(margin + 60, y - 3, barW, 6, 'F');
+      doc.setTextColor(50, 50, 50);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text(cat.name, margin, y + 1);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.text(`${cat.score} (${cat.grade})`, pageW - margin, y + 1, { align: 'right' });
+      y += 10;
+    }
+    y += 5;
+
+    // Top GEO Opportunities
+    if (geoReport.topOpportunities.length > 0) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(30, 30, 30);
+      doc.text('Top GEO Opportunities', margin, y);
+      y += 7;
+
+      for (const opp of geoReport.topOpportunities.slice(0, 5)) {
+        const impColor = { High: [239, 68, 68], Medium: [245, 158, 11], Low: [107, 114, 128] }[opp.estimatedImpact] as [number, number, number];
+        doc.setFillColor(248, 248, 252);
+        doc.rect(margin, y - 2, contentW, 14, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(30, 30, 30);
+        doc.text(`${opp.priority}. ${opp.title}`, margin + 2, y + 4);
+        doc.setFillColor(...impColor);
+        doc.roundedRect(pageW - margin - 28, y, 28, 6, 1, 1, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(7);
+        doc.text(`${opp.estimatedImpact} Impact`, pageW - margin - 27, y + 4.5);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(80, 80, 80);
+        const descLines = doc.splitTextToSize(opp.description, contentW - 35);
+        doc.text(descLines[0], margin + 2, y + 10);
+        y += 16;
+        if (y > pageH - 30) { doc.addPage(); y = margin; }
+      }
+      y += 5;
+    }
+
+    // Competitive insight
+    y += 4;
+    doc.setFillColor(245, 240, 255);
+    const geoInsightLines = doc.splitTextToSize(`Competitive Insight: ${geoReport.competitiveInsight}`, contentW - 8);
+    doc.rect(margin, y - 2, contentW, geoInsightLines.length * 5 + 8, 'F');
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8);
+    doc.setTextColor(100, 60, 180);
+    doc.text(geoInsightLines, margin + 4, y + 4);
+    y += geoInsightLines.length * 5 + 12;
   }
 
   // ── Footer on every page ───────────────────────────────────

@@ -23,7 +23,7 @@ export async function GET(
 
     const { data: report, error } = await supabase
       .from('reports')
-      .select('id, url, domain, status, error_msg, overall_score, audit_result, lighthouse_data, aeo_report, created_at')
+      .select('id, url, domain, status, error_msg, overall_score, audit_result, lighthouse_data, aeo_report, geo_report, created_at')
       .eq('id', id)
       .single();
 
