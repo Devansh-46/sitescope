@@ -1,14 +1,14 @@
 "use client";
 
-// components/AEOBadge.tsx
-import type { AEOReport } from "@/lib/aeo";
+// components/GEOBadge.tsx
+import type { GEOReport } from "@/lib/geo";
 
-interface AEOBadgeProps {
-  report: AEOReport;
+interface GEOBadgeProps {
+  report: GEOReport;
   size?: "sm" | "md" | "lg";
 }
 
-export default function AEOBadge({ report, size = "md" }: AEOBadgeProps) {
+export default function GEOBadge({ report, size = "md" }: GEOBadgeProps) {
   const scoreColor =
     report.overallScore >= 75 ? "#f59e0b"
       : report.overallScore >= 45 ? "#f97316"
@@ -24,9 +24,9 @@ export default function AEOBadge({ report, size = "md" }: AEOBadgeProps) {
           background: scoreColor + "12",
           letterSpacing: "0.04em",
         }}
-        title={`AEO Score: ${report.overallScore}/100 — ${report.aeoReadiness}`}
+        title={`GEO Score: ${report.overallScore}/100 — ${report.geoReadiness}`}
       >
-        🧠 AEO {report.overallScore}
+        🌐 GEO {report.overallScore}
       </div>
     );
   }
@@ -34,16 +34,16 @@ export default function AEOBadge({ report, size = "md" }: AEOBadgeProps) {
   return (
     <div className="inline-flex items-center gap-2.5 px-3 py-2 rounded-lg"
       style={{ background: "#0d0d1a", border: "1px solid #1e1e2e" }}>
-      <span className="text-base">🧠</span>
+      <span className="text-base">🌐</span>
       <div>
         <div className="flex items-center gap-1.5">
-          <span className="text-sm font-bold text-white">AEO {report.overallScore}</span>
+          <span className="text-sm font-bold text-white">GEO {report.overallScore}</span>
           <span className="text-xs font-bold px-1.5 py-0.5 rounded"
             style={{ background: scoreColor + "20", color: scoreColor }}>
             {report.overallGrade}
           </span>
         </div>
-        <p className="text-xs mt-0.5" style={{ color: "#4a4a6a" }}>{report.aeoReadiness}</p>
+        <p className="text-xs mt-0.5" style={{ color: "#4a4a6a" }}>{report.geoReadiness}</p>
       </div>
     </div>
   );

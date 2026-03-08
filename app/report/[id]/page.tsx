@@ -10,6 +10,9 @@ import PageSpeedPanel from '@/components/PageSpeedPanel';
 import ProcessingScreen from '@/components/ProcessingScreen';
 import AEOPanel from '@/components/AEOPanel';
 import AEOBadge from '@/components/AEOBadge';
+import GEOPanel from '@/components/GEOPanel';
+import GEOBadge from '@/components/GEOBadge';
+import type { GEOReport } from '@/lib/geo';
 
 export default async function ReportPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -18,7 +21,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
 
   const { data: report, error } = await supabase
     .from('reports')
-    .select('id, url, domain, overall_score, status, error_msg, audit_result, lighthouse_data, aeo_report, created_at')
+    .select('id, url, domain, overall_score, status, error_msg, audit_result, lighthouse_data, aeo_report, geo_report, created_at')
     .eq('id', id)
     .single();
 
@@ -63,6 +66,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
 
   // AEO report — may be null for older reports (before the column was added)
   const aeoReport = (report.aeo_report as unknown as AEOReport) ?? null;
+  const geoReport = (report.geo_report as unknown as GEOReport) ?? null;
 
   return (
     <div className="min-h-screen bg-void">
@@ -76,6 +80,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
           <div className="flex items-center gap-3">
             {/* AEO Badge in nav — shows at a glance */}
             {aeoReport && <AEOBadge report={aeoReport} size="sm" />}
+            {geoReport && <GEOBadge report={geoReport} size="sm" />}
             <span className="text-xs font-mono text-text-muted border border-border px-3 py-1 rounded-full">
               AUDIT COMPLETE
             </span>
@@ -106,6 +111,9 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
         {/* AEO Panel — full width, below the top row */}
         {/* Lazy-loads its own analysis if not saved from pipeline */}
         <AEOPanel url={report.url} initialReport={aeoReport} />
+
+        {/* GEO Panel — full width, below AEO */}
+        <GEOPanel url={report.url} initialReport={geoReport} />
 
         <div>
           <h2 className="font-display font-bold text-xl text-text-primary mb-5 flex items-center gap-2">

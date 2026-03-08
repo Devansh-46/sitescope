@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { after } from 'next/server';
 import { z } from 'zod';
 import { extractAEOSignals, buildAEOReport } from '@/lib/aeo';
+import { extractGEOSignals, buildGEOReport } from '@/lib/geo';
 
 function jsonError(message: string, status = 500) {
   return NextResponse.json({ error: message }, { status });
@@ -87,7 +88,17 @@ async function runAnalysisPipeline(reportId: string, url: string) {
       console.warn('[AEO] Analysis failed (non-fatal):', aeoError);
     }
 
-    // 3. AI analysis — pass empty lighthouse data (PageSpeed loads separately)
+    // 3. GEO Analysis — same pattern as AEO, non-blocking
+    let geoReport = null;
+    try {
+      const geoSignals = extractGEOSignals(rawHtml, url);
+      geoReport = buildGEOReport(geoSignals, url);
+      console.log('[pipeline] GEO analysis complete. Score:', geoReport.overallScore);
+    } catch (geoError) {
+      console.warn('[GEO] Analysis failed (non-fatal):', geoError);
+    }
+
+    // 4. AI analysis — pass empty lighthouse data (PageSpeed loads separately)
     console.log('[pipeline] Starting Gemini AI analysis...');
     await supabase.from('reports').update({ status: 'ANALYZING' }).eq('id', reportId);
 
@@ -115,12 +126,13 @@ async function runAnalysisPipeline(reportId: string, url: string) {
       return;
     }
 
-    // 4. Mark complete — save AI report + AEO report together
+    // 5. Mark complete — save AI report + AEO report together
     clearTimeout(pipelineTimeout);
     const { error: updateError } = await supabase.from('reports').update({
       audit_result: auditResult,
       overall_score: auditResult.overallScore,
       aeo_report: aeoReport,
+      geo_report: geoReport,
       status: 'COMPLETE',
     }).eq('id', reportId);
 
