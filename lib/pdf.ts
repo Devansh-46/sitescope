@@ -29,6 +29,7 @@ export async function generatePDFReport(
   });
 
   const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
   const margin = 20;
   const contentW = pageW - margin * 2;
   let y = margin;
